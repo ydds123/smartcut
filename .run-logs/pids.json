@@ -1,0 +1,9 @@
+{
+  "services": {
+    "backend": 81365,
+    "frontend": 77645,
+    "worker": 68629
+  },
+  "supervisor_pid": 77642,
+  "updated_at": "2026-02-22T15:59:13"
+}

@@ -1,0 +1,30 @@
+{
+  "mode": "headed-result-open-only",
+  "startedAt": "2026-02-19T11:18:11.407Z",
+  "steps": [
+    {
+      "at": "2026-02-19T11:18:14.683Z",
+      "name": "open-page",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "at": "2026-02-19T11:18:14.698Z",
+      "name": "find-enabled-result-button",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "at": "2026-02-19T11:18:16.396Z",
+      "name": "open-result-modal",
+      "status": "FAIL",
+      "detail": "dialog=false, images=0, sceneText=已切分 57 个场景"
+    }
+  ],
+  "screenshots": [
+    "/Users/apple/Documents/Claude Code/01_项目/短片拉片工具/smartcut/test-results/headed-live/result-only-01-open.png",
+    "/Users/apple/Documents/Claude Code/01_项目/短片拉片工具/smartcut/test-results/headed-live/result-only-02-modal.png"
+  ],
+  "errors": [],
+  "finishedAt": "2026-02-19T11:18:16.396Z"
+}

@@ -1,0 +1,61 @@
+{
+  "mode": "headless-upload-modal",
+  "startedAt": "2026-02-19T12:14:27.348Z",
+  "webUrl": "http://localhost:5173",
+  "apiUrl": "http://127.0.0.1:8000",
+  "videoPath": "/Users/apple/Documents/Claude Code/01_项目/短片拉片工具/smartcut/backend/data/uploads/27de506b-fc57-4f42-bb2e-140753cdad35_黑色环保动画短片《转折点》，当人类成为濒危动物时，世界会怎样？.mp4",
+  "outDir": "/Users/apple/Documents/Claude Code/01_项目/短片拉片工具/smartcut/test-results/headless-upload-modal-1771503267347",
+  "steps": [
+    {
+      "at": "2026-02-19T12:14:27.392Z",
+      "name": "baseline",
+      "status": "PASS",
+      "detail": "tasks=2"
+    },
+    {
+      "at": "2026-02-19T12:14:28.274Z",
+      "name": "open-page",
+      "status": "RUN",
+      "detail": ""
+    },
+    {
+      "at": "2026-02-19T12:14:29.663Z",
+      "name": "open-page",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "at": "2026-02-19T12:14:29.663Z",
+      "name": "open-upload-modal",
+      "status": "RUN",
+      "detail": ""
+    },
+    {
+      "at": "2026-02-19T12:14:29.831Z",
+      "name": "open-upload-modal",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "at": "2026-02-19T12:14:29.831Z",
+      "name": "upload-file",
+      "status": "RUN",
+      "detail": ""
+    },
+    {
+      "at": "2026-02-19T12:14:32.398Z",
+      "name": "upload-file",
+      "status": "PASS",
+      "detail": "new_task=1ee4f13a-e780-4d14-a15d-a32d0a0b219e, status=PENDING"
+    }
+  ],
+  "screenshots": [
+    "/Users/apple/Documents/Claude Code/01_项目/短片拉片工具/smartcut/test-results/headless-upload-modal-1771503267347/01-open.png",
+    "/Users/apple/Documents/Claude Code/01_项目/短片拉片工具/smartcut/test-results/headless-upload-modal-1771503267347/02-modal-opened.png",
+    "/Users/apple/Documents/Claude Code/01_项目/短片拉片工具/smartcut/test-results/headless-upload-modal-1771503267347/03-after-upload-trigger.png",
+    "/Users/apple/Documents/Claude Code/01_项目/短片拉片工具/smartcut/test-results/headless-upload-modal-1771503267347/04-final.png"
+  ],
+  "targetTaskId": "1ee4f13a-e780-4d14-a15d-a32d0a0b219e",
+  "errors": [],
+  "finishedAt": "2026-02-19T12:14:33.643Z"
+}

@@ -1,0 +1,22 @@
+{
+  "mode": "headless",
+  "videoPath": "/Users/apple/Documents/Claude Code/01_项目/短片拉片工具/smartcut/backend/data/uploads/ede532b0-8d18-4e9d-a192-9651b9597250_黑色环保动画短片《转折点》，当人类成为濒危动物时，世界会怎样？.mp4",
+  "displayName": "ede532b0-8d18-4e9d-a192-9651b9597250_黑色环保动画短片《转折点》，当人类成为濒危动物时，世界会怎样？.mp4",
+  "startedAt": "2026-02-19T07:48:35.405Z",
+  "baselineTaskCount": 13,
+  "taskId": null,
+  "checks": {},
+  "backendProgress": [],
+  "uiProgress": [],
+  "screenshots": [
+    "/Users/apple/Documents/Claude Code/01_项目/短片拉片工具/smartcut/test-results/user-video-headless/01-initial.png",
+    "/Users/apple/Documents/Claude Code/01_项目/短片拉片工具/smartcut/test-results/user-video-headless/02-after-upload.png"
+  ],
+  "issues": [
+    "console:Network Error: No response received",
+    "http:500 http://localhost:5173/api/tasks/c1ff0e7c-3591-407e-bf14-31efce44ec5c/progress",
+    "exception:HTTP 500 http://localhost:8000/api/tasks"
+  ],
+  "passed": false,
+  "endedAt": "2026-02-19T07:49:54.621Z"
+}

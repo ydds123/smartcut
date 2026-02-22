@@ -1,0 +1,52 @@
+{
+  "health_poll_sec": 2,
+  "restart_window_sec": 60,
+  "restart_max": 5,
+  "health_fail_threshold": 3,
+  "services": {
+    "backend": {
+      "cwd": "backend",
+      "cmd": [
+        "{python}",
+        "-m",
+        "uvicorn",
+        "app.main:app",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "8000"
+      ],
+      "health_urls": [
+        "http://127.0.0.1:8000/health"
+      ],
+      "port": 8000
+    },
+    "worker": {
+      "cwd": "backend",
+      "cmd": [
+        "{python}",
+        "-m",
+        "app.workers.worker"
+      ],
+      "health_urls": [],
+      "port": null
+    },
+    "frontend": {
+      "cwd": "frontend",
+      "cmd": [
+        "npm",
+        "run",
+        "dev",
+        "--",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "5173"
+      ],
+      "health_urls": [
+        "http://127.0.0.1:5173/"
+      ],
+      "port": 5173
+    }
+  }
+}

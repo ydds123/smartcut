@@ -1,0 +1,59 @@
+{
+  "mode": "headed-live-inline-5173",
+  "baseUrl": "http://localhost:5173",
+  "videoPath": "/Users/apple/Documents/Claude Code/01_项目/短片拉片工具/smartcut/backend/data/uploads/27de506b-fc57-4f42-bb2e-140753cdad35_黑色环保动画短片《转折点》，当人类成为濒危动物时，世界会怎样？.mp4",
+  "startedAt": "2026-02-19T11:15:20.953Z",
+  "steps": [
+    {
+      "at": "2026-02-19T11:15:22.444Z",
+      "name": "open-page",
+      "status": "RUN",
+      "detail": ""
+    },
+    {
+      "at": "2026-02-19T11:15:24.313Z",
+      "name": "open-page",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "at": "2026-02-19T11:15:24.313Z",
+      "name": "check-upload-input",
+      "status": "RUN",
+      "detail": ""
+    },
+    {
+      "at": "2026-02-19T11:15:24.328Z",
+      "name": "check-upload-input",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "at": "2026-02-19T11:15:24.328Z",
+      "name": "upload-video",
+      "status": "RUN",
+      "detail": ""
+    },
+    {
+      "at": "2026-02-19T11:15:28.405Z",
+      "name": "upload-video",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "at": "2026-02-19T11:15:28.405Z",
+      "name": "start-processing",
+      "status": "RUN",
+      "detail": ""
+    }
+  ],
+  "screenshots": [
+    "/Users/apple/Documents/Claude Code/01_项目/短片拉片工具/smartcut/test-results/headed-live/01-open-5173.png",
+    "/Users/apple/Documents/Claude Code/01_项目/短片拉片工具/smartcut/test-results/headed-live/02-uploaded-5173.png"
+  ],
+  "errors": [
+    "locator.click: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('button').filter({ hasText: '开始处理' }).first()\u001b[22m\n\u001b[2m    - locator resolved to <button class=\"inline-flex items-center justify-center rounded-md font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-blue-600 text-white hover:bg-blue-700 focus-visible:ring-blue-600 h-8 px-3 text-sm \">开始处理</button>\u001b[22m\n\u001b[2m  - attempting click action\u001b[22m\n\u001b[2m    2 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - element is not visible\u001b[22m\n\u001b[2m    - retrying click action\u001b[22m\n\u001b[2m    - waiting 20ms\u001b[22m\n\u001b[2m    2 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - element is not visible\u001b[22m\n\u001b[2m    - retrying click action\u001b[22m\n\u001b[2m      - waiting 100ms\u001b[22m\n\u001b[2m    58 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m       - element is not visible\u001b[22m\n\u001b[2m     - retrying click action\u001b[22m\n\u001b[2m       - waiting 500ms\u001b[22m\n\n    at /Users/apple/Documents/Claude Code/01_项目/短片拉片工具/smartcut/frontend/[eval1]:42:48"
+  ],
+  "progress": [],
+  "finishedAt": "2026-02-19T11:15:58.484Z"
+}

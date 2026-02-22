@@ -1,0 +1,50 @@
+{
+  "mode": "qaskills-headless-review",
+  "timestamp": "2026-02-22T06:09:32.015Z",
+  "baseUrl": "http://127.0.0.1:5173",
+  "screenshot": "/Users/apple/Documents/Claude Code/qaskills_review_headless_1771740564398.png",
+  "checks": [
+    {
+      "name": "review_button_exists",
+      "pass": true,
+      "detail": "count=1"
+    },
+    {
+      "name": "video_playback",
+      "pass": true,
+      "detail": "currentTime=2.138s"
+    },
+    {
+      "name": "playhead_drag_changes_time",
+      "pass": true,
+      "detail": "00:02.0 -> 00:05.8"
+    },
+    {
+      "name": "playhead_drag_no_extra_boundary",
+      "pass": true,
+      "detail": "before=49, after=49"
+    },
+    {
+      "name": "zoom_wheel_applies_low_zoom",
+      "pass": true,
+      "detail": "low 20 -> 21 (step=1)"
+    },
+    {
+      "name": "zoom_anchor_stable",
+      "pass": true,
+      "detail": "ratio drift=0.000084"
+    },
+    {
+      "name": "zoom_wheel_applies_high_zoom",
+      "pass": true,
+      "detail": "high 180 -> 191 (step=11)"
+    },
+    {
+      "name": "zoom_dynamic_step",
+      "pass": true,
+      "detail": "lowStep=1, highStep=11"
+    }
+  ],
+  "passCount": 8,
+  "failCount": 0
+}

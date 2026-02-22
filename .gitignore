@@ -1,0 +1,9 @@
+node_modules/
+*.pyc
+__pycache__/
+data/uploads/
+data/tasks/
+*.db
+.env
+*.log
+.DS_Store

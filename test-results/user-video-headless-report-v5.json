@@ -1,0 +1,16 @@
+{
+  "mode": "headless",
+  "videoPath": "/Users/apple/Documents/Claude Code/01_项目/短片拉片工具/smartcut/backend/data/uploads/ede532b0-8d18-4e9d-a192-9651b9597250_黑色环保动画短片《转折点》，当人类成为濒危动物时，世界会怎样？.mp4",
+  "startedAt": "2026-02-19T08:03:47.581Z",
+  "baselineTaskCount": 0,
+  "taskId": null,
+  "checks": {},
+  "backendProgress": [],
+  "uiProgress": [],
+  "screenshots": [],
+  "issues": [
+    "exception:apiGet failed /api/tasks: apiRequestContext.get: connect ECONNREFUSED 127.0.0.1:8000\nCall log:\n\u001b[2m  - → GET http://127.0.0.1:8000/api/tasks\u001b[22m\n\u001b[2m    - user-agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/145.0.7632.6 Safari/537.36\u001b[22m\n\u001b[2m    - accept: */*\u001b[22m\n\u001b[2m    - accept-encoding: gzip,deflate,br\u001b[22m\n"
+  ],
+  "passed": false,
+  "endedAt": "2026-02-19T08:03:58.961Z"
+}

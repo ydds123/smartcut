@@ -1,0 +1,21 @@
+# FastAPI 核心
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+python-multipart==0.0.20
+
+# 数据库
+sqlalchemy==2.0.36
+alembic==1.14.0
+
+# 任务队列
+rq==1.16.2
+redis==5.2.1
+
+# 文件处理
+aiofiles==24.1.0
+python-magic==0.4.27
+
+# 工具
+pydantic==2.10.4
+pydantic-settings==2.7.1
+python-dotenv==1.0.1

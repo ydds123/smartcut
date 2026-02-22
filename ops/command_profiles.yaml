@@ -1,0 +1,27 @@
+version: 1
+project: smartcut
+
+profiles:
+  dev_profile:
+    description: "Frontend/backend local development commands."
+    allow_prefixes:
+      - ["npm", "run", "dev"]
+      - ["python3", "-m", "uvicorn"]
+      - ["lsof", "-iTCP"]
+      - ["ps", "-ef"]
+      - ["tail", "-n"]
+
+  qa_profile:
+    description: "Build and static check commands."
+    allow_prefixes:
+      - ["npm", "run", "build"]
+      - ["npm", "run", "lint"]
+
+  ops_profile:
+    description: "Local health check and runtime diagnostics."
+    allow_prefixes:
+      - ["curl", "-sS", "http://localhost:"]
+      - ["curl", "-sS", "http://127.0.0.1:"]
+      - ["lsof", "-iTCP"]
+      - ["ps", "-ef"]
+      - ["tail", "-n"]

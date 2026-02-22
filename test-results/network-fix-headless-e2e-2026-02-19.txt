@@ -1,0 +1,18 @@
+SmartCut Network Fix Headless E2E
+Date: 2026-02-19
+Video: /Users/apple/Documents/Claude Code/01_项目/短片拉片工具/smartcut/backend/data/uploads/ede532b0-8d18-4e9d-a192-9651b9597250_黑色环保动画短片《转折点》，当人类成为濒危动物时，世界会怎样？.mp4
+
+Result:
+- task_id: 5b07d821-e075-4067-917d-23277056c35d
+- status: COMPLETED
+- progress: 100
+- total_scenes: 57
+- created_at: 2026-02-19T09:03:41.915905
+- updated_at: 2026-02-19T09:04:52.585939
+
+Polling snapshots:
+- iter=000 status=QUEUED progress=0
+- iter=001 status=PROCESSING progress=5
+- ...
+- iter=034 status=PROCESSING progress=100
+- iter=036 status=COMPLETED progress=100 total_scenes=57

@@ -1,0 +1,64 @@
+{
+  "mode": "qaskills-review-filmstrip-headless",
+  "timestamp": "2026-02-22T06:57:36.851Z",
+  "baseUrl": "http://127.0.0.1:5173",
+  "screenshot": "/Users/apple/Documents/Claude Code/qaskills_review_filmstrip_1771743448899.png",
+  "metrics": {
+    "lowZoom": {
+      "scene0Slots": 5,
+      "scene0Loaded": 0,
+      "totalSlots": 86,
+      "totalLoaded": 0,
+      "scrollLeft": 0,
+      "scrollWidth": 4149,
+      "clientWidth": 1280
+    },
+    "highZoom": {
+      "scene0Slots": 45,
+      "scene0Loaded": 0,
+      "totalSlots": 828,
+      "totalLoaded": 0,
+      "scrollLeft": 0,
+      "scrollWidth": 37340,
+      "clientWidth": 1280
+    },
+    "afterScroll": {
+      "scene0Slots": 45,
+      "scene0Loaded": 45,
+      "totalSlots": 828,
+      "totalLoaded": 121,
+      "scrollLeft": 28127,
+      "scrollWidth": 37340,
+      "clientWidth": 1280
+    }
+  },
+  "checks": [
+    {
+      "name": "review_button_exists",
+      "pass": true,
+      "detail": "count=1"
+    },
+    {
+      "name": "zoom_increases_scene_slot_density",
+      "pass": true,
+      "detail": "scene0Slots: low=5, high=45"
+    },
+    {
+      "name": "zoom_increases_total_slot_density",
+      "pass": true,
+      "detail": "totalSlots: low=86, high=828"
+    },
+    {
+      "name": "scroll_advances_timeline",
+      "pass": true,
+      "detail": "scrollLeft: before=0.0, after=28127.0"
+    },
+    {
+      "name": "scroll_triggers_additional_thumb_loading",
+      "pass": true,
+      "detail": "loadedImgs: before=0, after=121"
+    }
+  ],
+  "passCount": 5,
+  "failCount": 0
+}

@@ -1,0 +1,687 @@
+{
+  "mode": "headless-ui-only",
+  "videoPath": "/Users/apple/Documents/Claude Code/01_项目/短片拉片工具/smartcut/backend/data/uploads/ede532b0-8d18-4e9d-a192-9651b9597250_黑色环保动画短片《转折点》，当人类成为濒危动物时，世界会怎样？.mp4",
+  "baseName": "ede532b0-8d18-4e9d-a192-9651b9597250_黑色环保动画短片《转折点》，当人类成为濒危动物时，世界会怎样？.mp4",
+  "startedAt": "2026-02-19T08:14:31.260Z",
+  "checks": {
+    "title": {
+      "hasTruncate": true,
+      "hasTitleAttr": true,
+      "textAlign": "start",
+      "titleAttr": "ede532b0-8d18-4e9d-a192-9651b9597250_黑色环保动画短片《转折点》，当人类成为濒危动物时，世界会怎样？.mp4"
+    },
+    "progress": {
+      "samples": 105,
+      "first": 0,
+      "last": 45,
+      "monotonic": true,
+      "reached100": false
+    }
+  },
+  "progressHistory": [
+    {
+      "sec": 0,
+      "percent": 0,
+      "status": "队列中",
+      "hasView": false
+    },
+    {
+      "sec": 1,
+      "percent": 0,
+      "status": "队列中",
+      "hasView": false
+    },
+    {
+      "sec": 2,
+      "percent": 0,
+      "status": "队列中",
+      "hasView": false
+    },
+    {
+      "sec": 3,
+      "percent": 0,
+      "status": "队列中",
+      "hasView": false
+    },
+    {
+      "sec": 4,
+      "percent": 13,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 5,
+      "percent": 13,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 6,
+      "percent": 13,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 7,
+      "percent": 13,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 8,
+      "percent": 13,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 9,
+      "percent": 13,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 10,
+      "percent": 13,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 11,
+      "percent": 13,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 12,
+      "percent": 13,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 13,
+      "percent": 13,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 14,
+      "percent": 25,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 15,
+      "percent": 25,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 16,
+      "percent": 25,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 17,
+      "percent": 25,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 18,
+      "percent": 25,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 19,
+      "percent": 25,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 20,
+      "percent": 25,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 21,
+      "percent": 25,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 22,
+      "percent": 25,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 23,
+      "percent": 33,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 24,
+      "percent": 33,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 25,
+      "percent": 33,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 26,
+      "percent": 33,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 27,
+      "percent": 33,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 28,
+      "percent": 33,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 29,
+      "percent": 33,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 30,
+      "percent": 33,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 31,
+      "percent": 33,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 32,
+      "percent": 40,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 33,
+      "percent": 40,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 34,
+      "percent": 40,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 35,
+      "percent": 40,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 36,
+      "percent": 40,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 37,
+      "percent": 40,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 38,
+      "percent": 40,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 39,
+      "percent": 40,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 40,
+      "percent": 40,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 41,
+      "percent": 45,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 42,
+      "percent": 45,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 43,
+      "percent": 45,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 44,
+      "percent": 45,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 45,
+      "percent": 45,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 46,
+      "percent": 45,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 47,
+      "percent": 45,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 48,
+      "percent": 45,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 49,
+      "percent": 45,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 50,
+      "percent": 45,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 51,
+      "percent": 45,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 52,
+      "percent": 45,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 53,
+      "percent": 45,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 54,
+      "percent": 45,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 55,
+      "percent": 45,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 56,
+      "percent": 45,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 57,
+      "percent": 45,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 58,
+      "percent": 45,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 59,
+      "percent": 45,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 60,
+      "percent": 45,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 61,
+      "percent": 45,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 62,
+      "percent": 45,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 63,
+      "percent": 45,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 64,
+      "percent": 45,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 65,
+      "percent": 45,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 66,
+      "percent": 45,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 67,
+      "percent": 45,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 68,
+      "percent": 45,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 69,
+      "percent": 45,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 70,
+      "percent": 45,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 71,
+      "percent": 45,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 72,
+      "percent": 45,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 73,
+      "percent": 45,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 74,
+      "percent": 45,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 75,
+      "percent": 45,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 76,
+      "percent": 45,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 77,
+      "percent": 45,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 78,
+      "percent": 45,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 79,
+      "percent": 45,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 80,
+      "percent": 45,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 81,
+      "percent": 45,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 82,
+      "percent": 45,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 83,
+      "percent": 45,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 84,
+      "percent": 45,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 85,
+      "percent": 45,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 86,
+      "percent": 45,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 87,
+      "percent": 45,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 88,
+      "percent": 45,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 89,
+      "percent": 45,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 90,
+      "percent": 45,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 91,
+      "percent": 45,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 92,
+      "percent": 45,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 93,
+      "percent": 45,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 94,
+      "percent": 45,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 95,
+      "percent": 45,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 96,
+      "percent": 45,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 97,
+      "percent": 45,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 98,
+      "percent": 45,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 99,
+      "percent": 45,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 100,
+      "percent": 45,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 101,
+      "percent": 45,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 102,
+      "percent": 45,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 103,
+      "percent": 45,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 104,
+      "percent": 45,
+      "status": "处理中",
+      "hasView": false
+    },
+    {
+      "sec": 105,
+      "percent": null,
+      "status": null,
+      "hasView": false
+    },
+    {
+      "sec": 106,
+      "percent": null,
+      "status": null,
+      "hasView": false
+    },
+    {
+      "sec": 107,
+      "percent": null,
+      "status": null,
+      "hasView": true
+    }
+  ],
+  "screenshots": [
+    "/Users/apple/Documents/Claude Code/01_项目/短片拉片工具/smartcut/test-results/user-video-headless-ui-v2/01-initial.png",
+    "/Users/apple/Documents/Claude Code/01_项目/短片拉片工具/smartcut/test-results/user-video-headless-ui-v2/02-after-upload.png",
+    "/Users/apple/Documents/Claude Code/01_项目/短片拉片工具/smartcut/test-results/user-video-headless-ui-v2/03-after-start.png",
+    "/Users/apple/Documents/Claude Code/01_项目/短片拉片工具/smartcut/test-results/user-video-headless-ui-v2/04-final.png"
+  ],
+  "issues": [
+    "console:Network Error: No response received",
+    "http:500 http://localhost:5173/api/tasks/200201d9-dae9-491b-bd3f-d27db538e12c/progress",
+    "console:Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "console:Network Error: No response received",
+    "console:Network Error: No response received",
+    "console:Network Error: No response received"
+  ],
+  "passed": false,
+  "endedAt": "2026-02-19T08:18:08.373Z"
+}

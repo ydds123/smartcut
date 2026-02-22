@@ -1,0 +1,14 @@
+[
+  {
+    "name": "首页加载",
+    "status": "RUNNING",
+    "message": "导航到首页",
+    "timestamp": "2026-02-19T01:21:53.336Z"
+  },
+  {
+    "name": "测试执行",
+    "status": "ERROR",
+    "message": "goto: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - navigating to \"http://localhost:5173/\", waiting until \"networkidle\"\u001b[22m\n",
+    "timestamp": "2026-02-19T01:22:23.338Z"
+  }
+]

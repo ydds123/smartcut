@@ -1,0 +1,31 @@
+{
+  "services": {
+    "backend": {
+      "health_failures": 0,
+      "last_error": "",
+      "pid": 81365,
+      "restart_count": 1,
+      "status": "running",
+      "updated_at": "2026-02-22T15:59:13"
+    },
+    "frontend": {
+      "health_failures": 0,
+      "last_error": "",
+      "pid": 77645,
+      "restart_count": 0,
+      "status": "running",
+      "updated_at": "2026-02-22T15:59:13"
+    },
+    "worker": {
+      "health_failures": 0,
+      "last_error": "",
+      "pid": 68629,
+      "restart_count": 1,
+      "status": "running",
+      "updated_at": "2026-02-22T15:59:13"
+    }
+  },
+  "stop_reason": "",
+  "supervisor_pid": 77642,
+  "updated_at": "2026-02-22T15:59:13"
+}
