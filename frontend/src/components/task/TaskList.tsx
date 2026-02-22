@@ -77,21 +77,21 @@ export function TaskList({
 
   return (
     <div className="h-full min-h-0 flex flex-col gap-2">
-      <div className="flex flex-col gap-2 rounded-lg border border-[#e6eaf2] bg-[#f7f9fc] px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-2 text-sm text-[#4e5969]">
+      <div className="flex flex-col gap-2 rounded-lg border border-[#27272a] bg-[#0f0f0f] px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-2 text-sm text-[#71717a]">
           <Checkbox
             checked={allVisibleSelected}
             onChange={() => onToggleAllVisible()}
             aria-label="全选当前列表任务"
           />
           <span className="font-medium">全选当前列表</span>
-          <span className="text-[#7f8898]">已选择 {selectedTaskIds.size} 项</span>
+          <span className="text-[#71717a]">已选择 {selectedTaskIds.size} 项</span>
         </div>
         <div className="flex items-center gap-2 justify-end">
           <button
             type="button"
             onClick={onAddSource}
-            className="inline-flex h-8 items-center justify-center gap-1 rounded-full border border-[#ccd6f5] bg-white px-4 text-sm font-medium text-[#2d3a54] transition-colors hover:border-[#9ab2ff] hover:bg-[#f5f8ff]"
+            className="inline-flex h-8 items-center justify-center gap-1 rounded-md border border-[#27272a] bg-[#18181b] px-4 text-sm font-medium text-[#d4d4d8] transition-colors hover:border-primary hover:bg-[rgba(47,140,255,0.08)]"
           >
             <span className="text-base leading-none">+</span>
             添加来源
@@ -99,7 +99,7 @@ export function TaskList({
           <button
             type="button"
             onClick={() => setIsConfigOpen(true)}
-            className="inline-flex h-8 items-center justify-center rounded-full border border-[#ccd6f5] bg-white px-4 text-sm font-medium text-[#2d3a54] transition-colors hover:border-[#9ab2ff] hover:bg-[#f5f8ff]"
+            className="inline-flex h-8 items-center justify-center rounded-md border border-[#27272a] bg-[#18181b] px-4 text-sm font-medium text-[#d4d4d8] transition-colors hover:border-primary hover:bg-[rgba(47,140,255,0.08)]"
           >
             参数配置
           </button>
@@ -117,12 +117,12 @@ export function TaskList({
       </div>
 
       {tasks.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-[#d8deea] bg-[#f8fafe] px-4 py-6 text-sm text-[#6d7688]">
+        <div className="rounded-lg border border-dashed border-[#27272a] bg-[#0f0f0f] px-4 py-6 text-sm text-[#71717a]">
           当前暂无任务
         </div>
       ) : (
-        <div className="flex-1 min-h-0 overflow-hidden rounded-lg border border-[#e6eaf2] bg-white flex flex-col">
-          <div className="grid grid-cols-[32px_2.8fr_1.2fr_0.6fr_0.9fr_1fr] items-center gap-x-3 border-b border-[#e8edf6] bg-[#f5f7fb] px-3 py-2 text-xs font-semibold text-[#6a7384]">
+        <div className="flex-1 min-h-0 overflow-hidden rounded-lg border border-[#27272a] bg-[#18181b] flex flex-col">
+          <div className="grid grid-cols-[32px_2.8fr_1.2fr_0.6fr_0.9fr_1fr] items-center gap-x-3 border-b border-[#27272a] bg-[#0f0f0f] px-3 py-2 text-sm font-semibold text-[#71717a]">
             <div />
             <div>任务名称</div>
             <div>状态 / 进度</div>

@@ -112,33 +112,33 @@ function App() {
 
   if (error) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#f5f6f7]">
+      <div className="flex min-h-screen items-center justify-center bg-[#09090b]">
         <div className="text-center">
-          <h1 className="mb-2 text-2xl font-bold text-red-600">加载失败</h1>
-          <p className="text-gray-600">{error.message}</p>
+          <h1 className="mb-2 text-2xl font-bold text-danger">加载失败</h1>
+          <p className="text-[#71717a]">{error.message}</p>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="h-screen bg-[#f3f5f8] text-[#1f2329] flex flex-col overflow-hidden">
-      <header className="border-b border-[#e3e7ef] bg-white">
+    <div className="h-screen bg-[#09090b] text-[#d4d4d8] flex flex-col overflow-hidden">
+      <header className="border-b border-[#27272a] bg-[#09090b]">
         <div className="mx-auto flex w-full max-w-[1820px] items-center justify-between px-3 py-3 sm:px-4 lg:px-6">
           <div>
-            <h1 className="text-[26px] font-semibold leading-8 text-[#1f2329]">SmartCut</h1>
-            <p className="text-sm text-[#646a73]">视频任务资源管理</p>
+            <h1 className="text-[26px] font-semibold leading-8 text-[#d4d4d8]">SmartCut</h1>
+            <p className="text-sm text-[#71717a]">视频任务资源管理</p>
           </div>
-          <div className="text-sm text-[#646a73]">
-            当前任务：<span className="font-semibold text-[#1f2329]">{safeTasks.length}</span>
+          <div className="text-sm text-[#71717a]">
+            当前任务：<span className="font-semibold text-[#d4d4d8]">{safeTasks.length}</span>
           </div>
         </div>
       </header>
 
       <main className="mx-auto w-full max-w-[1820px] flex-1 overflow-hidden px-3 py-3 sm:px-4 lg:px-6 lg:py-4">
-        <section className="h-full rounded-lg border border-[#e5e9f1] bg-white p-3 shadow-sm sm:p-4 flex flex-col min-h-0">
+        <section className="h-full rounded-lg border border-[#27272a] bg-[#18181b] p-3 shadow-sm sm:p-4 flex flex-col min-h-0">
           {isLoading ? (
-            <div className="py-10 text-center text-[#646a73]">加载中...</div>
+            <div className="py-10 text-center text-[#71717a]">加载中...</div>
           ) : (
             <div className="flex-1 min-h-0">
               <TaskList

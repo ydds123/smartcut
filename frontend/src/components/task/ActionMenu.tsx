@@ -68,7 +68,7 @@ export function ActionMenu({ menuItems, disabled = false }: ActionMenuProps) {
         onClick={() => setIsOpen(!isOpen)}
         disabled={disabled}
         className={`
-          p-1.5 rounded hover:bg-bg-hover text-text-tertiary hover:text-text-secondary
+          p-1.5 rounded hover:bg-[#27272a] text-[#71717a] hover:text-[#d4d4d8]
           transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed
         `}
         aria-label="操作菜单"
@@ -79,8 +79,8 @@ export function ActionMenu({ menuItems, disabled = false }: ActionMenuProps) {
       {isOpen && (
         <div
           className="
-            absolute right-0 top-full mt-1 w-36 bg-white rounded-lg shadow-lg
-            border border-border-light py-1 z-50
+            absolute right-0 top-full mt-1 w-36 bg-[#18181b] rounded-lg shadow-lg
+            border border-[#27272a] py-1 z-50
           "
         >
           {visibleItems.map((item, index) => {
@@ -88,7 +88,7 @@ export function ActionMenu({ menuItems, disabled = false }: ActionMenuProps) {
 
             if (item.divider) {
               return (
-                <div key={index} className="h-px bg-border-light my-1" />
+                <div key={index} className="h-px bg-[#27272a] my-1" />
               )
             }
 
@@ -99,8 +99,8 @@ export function ActionMenu({ menuItems, disabled = false }: ActionMenuProps) {
                 onClick={() => handleItemClick(item)}
                 className={`
                   w-full px-3 py-2 flex items-center gap-2 text-small
-                  hover:bg-bg-hover transition-colors duration-150
-                  ${item.danger ? 'text-danger hover:bg-danger/10' : 'text-text-primary'}
+                  hover:bg-[#27272a] transition-colors duration-150
+                  ${item.danger ? 'text-danger hover:bg-danger/10' : 'text-[#d4d4d8]'}
                 `}
               >
                 <Icon />

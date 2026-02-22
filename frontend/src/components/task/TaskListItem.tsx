@@ -78,16 +78,14 @@ export function TaskListItem({
   const displayProgress = Math.min(100, Math.max(progress ?? 0, task.progress ?? 0))
   const shotsCount = totalScenes ?? task.shotsCount ?? task.totalScenes
   const showProgress = ['PROCESSING', 'QUEUED', 'DETECTING', 'SPLITTING'].includes(liveStatus)
-  const suspectCount = task.suspectSegments?.length ?? 0
-  const qualityModeLabel = '手动参数'
 
   const previewUrl = resolveAssetUrl(task.previewThumbnailPath ?? null)
   const isBusy = isProcessing || isDeleting
 
   return (
     <div
-      className={`grid grid-cols-[32px_2.8fr_1.2fr_0.6fr_0.9fr_1fr] items-center gap-x-3 border-b border-[#edf0f5] px-3 py-2.5 transition-colors hover:bg-[#f7f9fc] ${
-        selected ? 'bg-[#f3f6ff]' : 'bg-white'
+      className={`grid grid-cols-[32px_2.8fr_1.2fr_0.6fr_0.9fr_1fr] items-center gap-x-3 border-b border-[#27272a] px-3 py-2.5 transition-colors hover:bg-[#1c1c1f] ${
+        selected ? 'bg-[rgba(47,140,255,0.08)]' : 'bg-[#18181b]'
       }`}
     >
       <div className="flex items-center justify-center">
@@ -98,9 +96,9 @@ export function TaskListItem({
         />
       </div>
 
-      <div className="min-w-0">
+      <div className="min-w-0 pr-4">
         <div className="flex min-w-0 items-center gap-3">
-        <div className="h-[45px] w-20 flex-shrink-0 overflow-hidden rounded-md border border-[#e5e8ef] bg-[#f3f5f9]">
+        <div className="h-[45px] w-20 flex-shrink-0 overflow-hidden rounded-md border border-[#27272a] bg-[#27272a]">
           {previewUrl ? (
             <img
               src={previewUrl}
@@ -109,7 +107,7 @@ export function TaskListItem({
               loading="lazy"
             />
           ) : (
-            <div className="flex h-full w-full items-center justify-center text-[#99a2b3]">
+            <div className="flex h-full w-full items-center justify-center text-[#71717a]">
               <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor">
                 <path
                   strokeLinecap="round"
@@ -123,60 +121,50 @@ export function TaskListItem({
         </div>
 
         <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-semibold text-[#1f2329]" title={task.displayName}>
+          <div className="truncate text-sm font-semibold text-[#d4d4d8]" title={task.displayName}>
             {task.displayName}
           </div>
-          <div className="mt-0.5 flex items-center gap-2 text-xs text-[#7b8495]">
+          <div className="mt-0.5 flex items-center gap-2 text-xs text-[#71717a]">
             <span>{formatFileSize(task.fileSize)}</span>
-            {liveStatus === 'COMPLETED' && (
-              <>
-                <span>·</span>
-                <span>{qualityModeLabel}</span>
-                <span>·</span>
-                <span className={suspectCount > 0 ? 'text-[#cf5c36]' : 'text-[#4f7f3f]'}>
-                  疑点 {suspectCount}
-                </span>
-              </>
-            )}
           </div>
         </div>
         </div>
       </div>
 
-      <div className="min-w-0 text-xs">
-        <StatusLabel status={liveStatus} className="text-xs" />
+      <div className="min-w-0 text-sm">
+        <StatusLabel status={liveStatus} className="text-sm" />
         {showProgress && (
           <div className="mt-1 flex items-center gap-2">
-            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-[#e8edf7]">
+            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-[#27272a]">
               <div
-                className="h-full rounded-full bg-[#4a78ff] transition-all duration-300"
+                className="h-full rounded-full bg-primary transition-all duration-300"
                 style={{ width: `${displayProgress}%` }}
               />
             </div>
-            <span className="w-11 text-right text-xs tabular-nums text-[#556074]">
+            <span className="w-11 text-right text-xs tabular-nums text-[#71717a]">
               {displayProgress.toFixed(0)}%
             </span>
           </div>
         )}
       </div>
 
-      <div className="text-xs text-[#4e5969]">
+      <div className="text-sm text-[#71717a]">
         {shotsCount ?? '--'}
       </div>
 
-      <div className="text-xs text-[#6b7383]">
+      <div className="text-sm text-[#71717a]">
         {formatUploadTime(task.createdAt)}
       </div>
 
-      <div className="min-w-0 text-xs" onClick={(event) => event.stopPropagation()}>
-        <div className="flex items-center gap-3 whitespace-nowrap text-[#1f2329]">
+      <div className="min-w-0 text-sm" onClick={(event) => event.stopPropagation()}>
+        <div className="flex items-center gap-3 whitespace-nowrap text-[#d4d4d8]">
           {liveStatus === 'PENDING' && (
             <>
               <button
                 type="button"
                 onClick={() => onProcess(task.id)}
                 disabled={isBusy}
-                className="font-medium text-[#2557d6] transition-colors hover:text-[#1d46ad] disabled:cursor-not-allowed disabled:text-[#9aa3b5]"
+                className="inline-flex h-7 items-center justify-center rounded-md border border-[#27272a] bg-[#18181b] px-3 text-sm font-medium text-[#d4d4d8] transition-colors hover:border-primary hover:bg-[rgba(47,140,255,0.08)] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 直接处理
               </button>
@@ -184,7 +172,7 @@ export function TaskListItem({
                 type="button"
                 onClick={() => onStartReview?.(task.id)}
                 disabled={isBusy}
-                className="font-medium text-[#2557d6] transition-colors hover:text-[#1d46ad] disabled:cursor-not-allowed disabled:text-[#9aa3b5]"
+                className="inline-flex h-7 items-center justify-center rounded-md border border-[#27272a] bg-[#18181b] px-3 text-sm font-medium text-[#d4d4d8] transition-colors hover:border-primary hover:bg-[rgba(47,140,255,0.08)] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 检测并审核
               </button>
@@ -192,7 +180,7 @@ export function TaskListItem({
                 type="button"
                 onClick={() => onDelete(task.id)}
                 disabled={isBusy}
-                className="font-medium text-[#e04b59] transition-colors hover:text-[#c03d49] disabled:cursor-not-allowed disabled:text-[#9aa3b5]"
+                className="inline-flex h-7 items-center justify-center rounded-md border border-[#27272a] bg-[#18181b] px-3 text-sm font-medium text-danger transition-colors hover:border-danger hover:bg-[rgba(239,68,68,0.08)] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 删除
               </button>
@@ -204,7 +192,7 @@ export function TaskListItem({
               type="button"
               onClick={() => onDelete(task.id)}
               disabled={isBusy}
-              className="font-medium text-[#e04b59] transition-colors hover:text-[#c03d49] disabled:cursor-not-allowed disabled:text-[#9aa3b5]"
+              className="inline-flex h-7 items-center justify-center rounded-md border border-[#27272a] bg-[#18181b] px-3 text-sm font-medium text-danger transition-colors hover:border-danger hover:bg-[rgba(239,68,68,0.08)] disabled:cursor-not-allowed disabled:opacity-50"
             >
               删除
             </button>
@@ -216,7 +204,7 @@ export function TaskListItem({
                 type="button"
                 onClick={() => onOpenReview?.(task.id)}
                 disabled={isBusy}
-                className="font-medium text-[#2557d6] transition-colors hover:text-[#1d46ad] disabled:cursor-not-allowed disabled:text-[#9aa3b5]"
+                className="inline-flex h-7 items-center justify-center rounded-md border border-[#27272a] bg-[#18181b] px-3 text-sm font-medium text-[#d4d4d8] transition-colors hover:border-primary hover:bg-[rgba(47,140,255,0.08)] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 查看并编辑
               </button>
@@ -224,7 +212,7 @@ export function TaskListItem({
                 type="button"
                 onClick={() => onDelete(task.id)}
                 disabled={isBusy}
-                className="font-medium text-[#e04b59] transition-colors hover:text-[#c03d49] disabled:cursor-not-allowed disabled:text-[#9aa3b5]"
+                className="inline-flex h-7 items-center justify-center rounded-md border border-[#27272a] bg-[#18181b] px-3 text-sm font-medium text-danger transition-colors hover:border-danger hover:bg-[rgba(239,68,68,0.08)] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 删除
               </button>
@@ -236,7 +224,7 @@ export function TaskListItem({
               type="button"
               onClick={() => onViewResult(task.id)}
               disabled={isBusy}
-              className="font-medium text-[#2557d6] transition-colors hover:text-[#1d46ad] disabled:cursor-not-allowed disabled:text-[#9aa3b5]"
+              className="inline-flex h-7 items-center justify-center rounded-md border border-[#27272a] bg-[#18181b] px-3 text-sm font-medium text-[#d4d4d8] transition-colors hover:border-primary hover:bg-[rgba(47,140,255,0.08)] disabled:cursor-not-allowed disabled:opacity-50"
             >
               查看工作台
             </button>
@@ -247,7 +235,7 @@ export function TaskListItem({
               type="button"
               onClick={() => onViewResult(task.id)}
               disabled={isBusy}
-              className="font-medium text-[#2557d6] transition-colors hover:text-[#1d46ad] disabled:cursor-not-allowed disabled:text-[#9aa3b5]"
+              className="inline-flex h-7 items-center justify-center rounded-md border border-[#27272a] bg-[#18181b] px-3 text-sm font-medium text-[#d4d4d8] transition-colors hover:border-primary hover:bg-[rgba(47,140,255,0.08)] disabled:cursor-not-allowed disabled:opacity-50"
             >
               查看详情
             </button>
@@ -259,7 +247,7 @@ export function TaskListItem({
                 type="button"
                 onClick={() => onViewResult(task.id)}
                 disabled={isBusy}
-                className="font-medium text-[#2557d6] transition-colors hover:text-[#1d46ad] disabled:cursor-not-allowed disabled:text-[#9aa3b5]"
+                className="inline-flex h-7 items-center justify-center rounded-md border border-[#27272a] bg-[#18181b] px-3 text-sm font-medium text-[#d4d4d8] transition-colors hover:border-primary hover:bg-[rgba(47,140,255,0.08)] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 查看详情
               </button>
@@ -267,7 +255,7 @@ export function TaskListItem({
                 type="button"
                 onClick={() => onDelete(task.id)}
                 disabled={isBusy}
-                className="font-medium text-[#e04b59] transition-colors hover:text-[#c03d49] disabled:cursor-not-allowed disabled:text-[#9aa3b5]"
+                className="inline-flex h-7 items-center justify-center rounded-md border border-[#27272a] bg-[#18181b] px-3 text-sm font-medium text-danger transition-colors hover:border-danger hover:bg-[rgba(239,68,68,0.08)] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 删除
               </button>

@@ -146,20 +146,20 @@ export function UploadModal() {
         aria-labelledby="upload-modal-title"
         ref={modalRef}
         style={modalStyle}
-        className="relative w-full max-w-3xl rounded-3xl border border-[#dce5ff] bg-gradient-to-br from-white via-[#f8fbff] to-[#f7fff7] p-6 shadow-2xl sm:p-8"
+        className="relative w-full max-w-3xl rounded-3xl border border-gray-200 bg-white p-6 shadow-2xl sm:p-8"
       >
         <div
           className={`flex items-start justify-between gap-4 ${dragging ? 'cursor-grabbing' : 'cursor-move'}`}
           onPointerDown={onHandlePointerDown}
         >
-          <h2 id="upload-modal-title" className="text-3xl font-semibold text-[#1f2329]">
+          <h2 id="upload-modal-title" className="text-3xl font-semibold text-gray-600">
             添加来源
           </h2>
           <button
             type="button"
             onClick={() => closeUploadModal()}
             data-drag-ignore="true"
-            className="inline-flex h-9 w-9 items-center justify-center rounded-full text-[#646a73] transition-colors hover:bg-[#eef2ff]"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-info-bg"
             aria-label="关闭上传窗口"
             disabled={isUploading}
           >
@@ -183,7 +183,7 @@ export function UploadModal() {
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
           className={`mt-6 rounded-2xl border-2 border-dashed p-10 text-center transition-colors sm:p-12 ${
-            isDragging ? 'border-[#6f8dff] bg-[#f1f5ff]' : 'border-[#d9dee8] bg-white/90'
+            isDragging ? 'border-primary bg-info-bg' : 'border-gray-200 bg-white/90'
           } ${isUploading ? 'pointer-events-none opacity-70' : 'cursor-pointer'}`}
         >
           <input
@@ -195,10 +195,10 @@ export function UploadModal() {
             disabled={isUploading}
           />
 
-          <p className="text-4xl font-medium text-[#2f3a4c]">
+          <p className="text-4xl font-medium text-gray-600">
             {isDragging ? '释放文件以上传' : '点击或拖放文件上传'}
           </p>
-          <p className="mt-3 text-sm text-[#7d8798]">支持 MP4/MOV/AVI/MKV，最大 500MB</p>
+          <p className="mt-3 text-sm text-gray-400">支持 MP4/MOV/AVI/MKV，最大 500MB</p>
 
           <div className="mt-8 flex justify-center">
             <Button
@@ -216,14 +216,14 @@ export function UploadModal() {
           </div>
 
           {isUploading && (
-            <div className="mx-auto mt-6 max-w-md rounded-xl border border-[#dce5ff] bg-[#f6f9ff] p-4">
-              <div className="mb-2 flex items-center justify-between text-sm text-[#5f6c84]">
+            <div className="mx-auto mt-6 max-w-md rounded-xl border border-gray-200 bg-gray-50 p-4">
+              <div className="mb-2 flex items-center justify-between text-sm text-gray-500">
                 <span>上传中...</span>
-                <span className="font-semibold text-[#2452d6]">{progress}%</span>
+                <span className="font-semibold text-primary">{progress}%</span>
               </div>
-              <div className="h-2 overflow-hidden rounded-full bg-[#dbe4ff]">
+              <div className="h-2 overflow-hidden rounded-full bg-gray-100">
                 <div
-                  className="h-full rounded-full bg-[#4e78ff] transition-all duration-300"
+                  className="h-full rounded-full bg-primary transition-all duration-300"
                   style={{ width: `${progress}%` }}
                 />
               </div>

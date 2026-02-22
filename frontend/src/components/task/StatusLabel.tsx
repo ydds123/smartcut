@@ -19,9 +19,13 @@ export function StatusLabel({ status, className = '' }: StatusLabelProps) {
 
   return (
     <span
-      className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-small ${config.textColor} ${config.bgColor} ${className}`}
+      className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-small ${className}`}
+      style={{ color: config.textColor, backgroundColor: config.bgColor }}
     >
-      <span className={`w-1.5 h-1.5 rounded-full ${config.dotColor}`} />
+      <span
+        className="w-1.5 h-1.5 rounded-full"
+        style={{ backgroundColor: config.dotColor }}
+      />
       {config.label}
     </span>
   )

@@ -469,35 +469,35 @@ export function ProcessingConfigModal({
       <div
         ref={modalRef}
         style={modalStyle}
-        className="max-h-[85vh] w-full max-w-4xl overflow-hidden rounded-xl bg-white shadow-2xl"
+        className="max-h-[85vh] w-full max-w-4xl overflow-hidden rounded-xl bg-[#18181b] shadow-2xl"
       >
         <div
-          className={`flex items-center justify-between border-b border-[#e7ebf3] px-5 py-3 ${dragging ? 'cursor-grabbing' : 'cursor-move'}`}
+          className={`flex items-center justify-between border-b border-[#27272a] px-5 py-3 ${dragging ? 'cursor-grabbing' : 'cursor-move'}`}
           onPointerDown={onHandlePointerDown}
         >
           <div>
-            <h2 className="text-lg font-semibold text-[#1f2329]">参数配置</h2>
-            <p className="text-xs text-[#697386]">质量优先：用于减少误切与漏切</p>
+            <h2 className="text-lg font-semibold text-[#d4d4d8]">参数配置</h2>
+            <p className="text-xs text-[#71717a]">质量优先：用于减少误切与漏切</p>
           </div>
           <button
             type="button"
             onClick={onClose}
             data-drag-ignore="true"
-            className="rounded px-2 py-1 text-[#5a6578] hover:bg-[#f3f6fc]"
+            className="rounded px-2 py-1 text-[#71717a] hover:bg-[#27272a]"
           >
             关闭
           </button>
         </div>
 
         <div className="max-h-[68vh] overflow-y-auto px-5 py-4">
-          <div className="mb-4 rounded-lg border border-[#e5e9f1] bg-[#f8faff] px-4 py-3">
-            <div className="mb-1 text-sm font-medium text-[#1f2329]">运行模式</div>
-            <div className="flex items-center gap-2 text-sm text-[#2f3b52]">
-              <span className="rounded-full bg-white px-2 py-0.5 text-xs text-[#6f7a8f]">手动参数模式</span>
-              <span className="text-[#7a8394]">支持 Fast 与 Precision（二阶段 TransNet 复核）</span>
+          <div className="mb-4 rounded-lg border border-[#27272a] bg-[#0f0f0f] px-4 py-3">
+            <div className="mb-1 text-sm font-medium text-[#d4d4d8]">运行模式</div>
+            <div className="flex items-center gap-2 text-sm text-[#d4d4d8]">
+              <span className="rounded-full bg-[#18181b] px-2 py-0.5 text-xs text-[#71717a]">手动参数模式</span>
+              <span className="text-[#71717a]">支持 Fast 与 Precision（二阶段 TransNet 复核）</span>
             </div>
             <div className="mt-3 flex flex-wrap items-center gap-4">
-              <label className="inline-flex items-center gap-2 text-sm text-[#2f3b52]">
+              <label className="inline-flex items-center gap-2 text-sm text-[#d4d4d8]">
                 <input
                   type="radio"
                   checked={currentDetectionMode === 'fast'}
@@ -506,7 +506,7 @@ export function ProcessingConfigModal({
                 />
                 Fast（仅 PySceneDetect）
               </label>
-              <label className="inline-flex items-center gap-2 text-sm text-[#2f3b52]">
+              <label className="inline-flex items-center gap-2 text-sm text-[#d4d4d8]">
                 <input
                   type="radio"
                   checked={currentDetectionMode === 'precision'}
@@ -516,7 +516,7 @@ export function ProcessingConfigModal({
                 Precision（PySceneDetect + TransNetV2）
               </label>
             </div>
-            <label className="mt-3 inline-flex items-center gap-2 text-sm text-[#2f3b52]">
+            <label className="mt-3 inline-flex items-center gap-2 text-sm text-[#d4d4d8]">
               <Checkbox
                 checked={transnetEnabled}
                 onChange={(event) => updateUseTransnet(event.currentTarget.checked)}
@@ -526,8 +526,8 @@ export function ProcessingConfigModal({
             </label>
           </div>
 
-          <div className="mb-4 rounded-lg border border-[#e5e9f1] bg-[#ffffff] px-4 py-3">
-            <label className="inline-flex items-center gap-2 text-sm text-[#2f3b52]">
+          <div className="mb-4 rounded-lg border border-[#27272a] bg-[#18181b] px-4 py-3">
+            <label className="inline-flex items-center gap-2 text-sm text-[#d4d4d8]">
               <Checkbox
                 checked={draft.enableOverride}
                 onChange={(event) => {
@@ -542,37 +542,37 @@ export function ProcessingConfigModal({
             </label>
           </div>
 
-          <div className="mb-4 rounded-lg border border-[#e5e9f1] bg-[#ffffff] px-4 py-3">
-            <div className="mb-2 text-sm font-medium text-[#1f2329]">推荐切分参数方案</div>
+          <div className="mb-4 rounded-lg border border-[#27272a] bg-[#18181b] px-4 py-3">
+            <div className="mb-2 text-sm font-medium text-[#d4d4d8]">推荐切分参数方案</div>
             <div className="flex flex-wrap gap-2">
               {RECOMMENDED_PRESETS.map((preset) => (
                 <button
                   key={preset.id}
                   type="button"
                   onClick={() => applyPreset(preset)}
-                  className="rounded-full border border-[#d4dcef] bg-[#f7f9ff] px-3 py-1 text-xs text-[#2f3b52] transition-colors hover:border-[#9bb2ff] hover:bg-[#eef3ff]"
+                  className="rounded-full border border-[#27272a] bg-[#0f0f0f] px-3 py-1 text-xs text-[#d4d4d8] transition-colors hover:border-primary hover:bg-[rgba(47,140,255,0.08)]"
                 >
                   {preset.label}
                 </button>
               ))}
             </div>
-            <p className="mt-2 text-[11px] text-[#7a8394]">
+            <p className="mt-2 text-[11px] text-[#71717a]">
               参考 PySceneDetect 官方参数建议与社区实践，可在下方继续微调。
             </p>
             <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-3">
               {RECOMMENDED_PRESETS.map((preset) => (
-                <div key={`${preset.id}-desc`} className="rounded border border-[#eef1f7] bg-[#fafcff] px-2 py-1.5">
-                  <div className="text-xs font-semibold text-[#2f3b52]">{preset.label}</div>
-                  <div className="text-[11px] text-[#7a8394]">{preset.description}</div>
+                <div key={`${preset.id}-desc`} className="rounded border border-[#27272a] bg-[#0f0f0f] px-2 py-1.5">
+                  <div className="text-xs font-semibold text-[#d4d4d8]">{preset.label}</div>
+                  <div className="text-[11px] text-[#71717a]">{preset.description}</div>
                 </div>
               ))}
             </div>
           </div>
 
-          <div className="rounded-lg border border-[#e5e9f1] bg-white p-4">
+          <div className="rounded-lg border border-[#27272a] bg-[#18181b] p-4">
             <div className="mb-3 flex flex-wrap items-center gap-4">
-              <div className="text-sm font-medium text-[#1f2329]">检测器</div>
-              <label className="inline-flex items-center gap-2 text-sm text-[#2f3b52]">
+              <div className="text-sm font-medium text-[#d4d4d8]">检测器</div>
+              <label className="inline-flex items-center gap-2 text-sm text-[#d4d4d8]">
                 <input
                   type="radio"
                   checked={draft.overrideConfig.detector === 'content'}
@@ -581,7 +581,7 @@ export function ProcessingConfigModal({
                 />
                 Content（稳定叙事）
               </label>
-              <label className="inline-flex items-center gap-2 text-sm text-[#2f3b52]">
+              <label className="inline-flex items-center gap-2 text-sm text-[#d4d4d8]">
                 <input
                   type="radio"
                   checked={draft.overrideConfig.detector === 'adaptive'}
@@ -592,11 +592,11 @@ export function ProcessingConfigModal({
               </label>
             </div>
 
-            <div className="mb-3 rounded border border-[#e8edf8] bg-[#f9fbff] px-3 py-2 text-[11px] text-[#5e6a80]">
-              <div className="font-semibold text-[#2f3b52]">
+            <div className="mb-3 rounded border border-[#27272a] bg-[#0f0f0f] px-3 py-2 text-[11px] text-[#71717a]">
+              <div className="font-semibold text-[#d4d4d8]">
                 当前模式：{currentDetectionMode === 'precision' ? 'Precision（二阶段）' : 'Fast（单阶段）'}
               </div>
-              <div className="mt-1 font-semibold text-[#2f3b52]">
+              <div className="mt-1 font-semibold text-[#d4d4d8]">
                 当前检测器：{draft.overrideConfig.detector === 'adaptive' ? 'Adaptive' : 'Content'}
               </div>
               {draft.overrideConfig.detector === 'adaptive' ? (
@@ -622,17 +622,17 @@ export function ProcessingConfigModal({
                 }
                 return true
               }).map((field) => (
-                <label key={field.key} className="block rounded border border-[#edf1f8] px-3 py-2">
+                <label key={field.key} className="block rounded border border-[#27272a] px-3 py-2">
                   <div className="mb-1 flex items-center justify-between gap-2">
-                    <span className="text-xs font-semibold text-[#2a3345]">{field.label}</span>
+                    <span className="text-xs font-semibold text-[#d4d4d8]">{field.label}</span>
                     <div className="flex items-center gap-1">
                       {field.detectorScope === 'adaptive' && (
-                        <span className="rounded-full bg-[#eef3ff] px-2 py-0.5 text-[10px] font-medium text-[#365fc2]">
+                        <span className="rounded-full bg-info-bg px-2 py-0.5 text-[10px] font-medium text-primary">
                           Adaptive 专属
                         </span>
                       )}
                       {field.modeScope === 'precision' && (
-                        <span className="rounded-full bg-[#effaf2] px-2 py-0.5 text-[10px] font-medium text-[#2f7a4d]">
+                        <span className="rounded-full bg-success-bg px-2 py-0.5 text-[10px] font-medium text-success-text">
                           Precision 专属
                         </span>
                       )}
@@ -649,28 +649,28 @@ export function ProcessingConfigModal({
                       (field.modeScope === 'precision' && (!transnetEnabled || currentDetectionMode !== 'precision'))
                     }
                     onChange={(event) => updateNumericField(field.key, event.currentTarget.value)}
-                    className="w-full rounded border border-[#d7deec] px-2 py-1 text-sm text-[#1f2329] disabled:bg-[#f3f5f9]"
+                    className="w-full rounded border border-[#27272a] bg-[#09090b] px-2 py-1 text-sm text-[#d4d4d8] disabled:bg-[#0f0f0f]"
                   />
-                  <div className="mt-1 text-[11px] text-[#7a8394]">{field.description}</div>
-                  <div className="mt-2 rounded border border-[#e9eef8] bg-[#fbfcff] px-2 py-1.5 text-[11px] text-[#5f6c83]">
+                  <div className="mt-1 text-[11px] text-[#71717a]">{field.description}</div>
+                  <div className="mt-2 rounded border border-[#27272a] bg-[#0f0f0f] px-2 py-1.5 text-[11px] text-[#71717a]">
                     <div>
-                      <span className="font-semibold text-[#3f5d95]">低值倾向：</span>
+                      <span className="font-semibold text-primary">低值倾向：</span>
                       {field.lowEffect}
                     </div>
                     <div className="mt-1">
-                      <span className="font-semibold text-[#96613f]">高值倾向：</span>
+                      <span className="font-semibold text-warning-text">高值倾向：</span>
                       {field.highEffect}
                     </div>
                     <div className="mt-1">
-                      <span className="font-semibold text-[#2f3b52]">质量权衡：</span>
+                      <span className="font-semibold text-[#d4d4d8]">质量权衡：</span>
                       {field.qualityTradeoff}
                     </div>
                     <div className="mt-1">
-                      <span className="font-semibold text-[#2f3b52]">性能权衡：</span>
+                      <span className="font-semibold text-[#d4d4d8]">性能权衡：</span>
                       {field.speedTradeoff}
                     </div>
                     <div className="mt-1">
-                      <span className="font-semibold text-[#2f3b52]">推荐区间：</span>
+                      <span className="font-semibold text-[#d4d4d8]">推荐区间：</span>
                       {field.recommendedRange}
                     </div>
                   </div>
@@ -680,11 +680,11 @@ export function ProcessingConfigModal({
           </div>
         </div>
 
-        <div className="flex items-center justify-between border-t border-[#e7ebf3] px-5 py-3">
+        <div className="flex items-center justify-between border-t border-[#27272a] px-5 py-3">
           <button
             type="button"
             onClick={resetToDefault}
-            className="text-sm text-[#4a74d8] hover:text-[#2d54b5]"
+            className="text-sm text-primary hover:text-primary-hover"
           >
             恢复默认
           </button>
