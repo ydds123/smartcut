@@ -9,7 +9,11 @@ interface ReviewTimelineWorkspaceProps {
   playheadMs: number
   isPlaying: boolean
   pixelsPerSecond: number
+  minPixelsPerSecond: number
+  maxPixelsPerSecond: number
+  zoomStepFactor?: number
   onPixelsPerSecondChange: (next: number) => void
+  onViewportWidthChange?: (width: number) => void
   onAddBoundary: (ms: number) => void
   onDeleteBoundary: (sceneIndex: number) => void
   onSetPlayhead: (ms: number) => void
@@ -40,8 +44,8 @@ export interface ReviewTimelineWorkspaceHandle {
   prepareExternalZoomAnchorByMs: (ms: number) => void
 }
 
-const MIN_PIXELS_PER_SECOND = 10
-const MAX_PIXELS_PER_SECOND = 200
+const DEFAULT_ZOOM_STEP_FACTOR = 1.08
+const ZOOM_MIN_RANGE_EPSILON = 0.001
 const PLAYHEAD_HIT_WIDTH = 14
 const PLAYHEAD_HALF_HIT_WIDTH = Math.floor(PLAYHEAD_HIT_WIDTH / 2)
 
@@ -56,21 +60,20 @@ const PREFETCH_BUFFER_VIEWPORTS = 1
 
 const toFrameKey = (ms: number) => Math.max(0, Math.floor(ms / FRAME_KEY_GRANULARITY_MS) * FRAME_KEY_GRANULARITY_MS)
 
-const resolveZoomStep = (currentPixelsPerSecond: number, wheelDeltaY: number) => {
-  const baseStep = clamp(Math.round(currentPixelsPerSecond * 0.06), 1, 12)
+const resolveZoomExponent = (wheelDeltaY: number) => {
   const magnitude = Math.abs(wheelDeltaY)
 
   if (magnitude >= 220) {
-    return clamp(Math.round(baseStep * 1.6), 1, 16)
+    return 2.2
   }
   if (magnitude >= 120) {
-    return clamp(Math.round(baseStep * 1.3), 1, 16)
+    return 1.6
   }
   if (magnitude <= 20) {
-    return clamp(Math.round(baseStep * 0.7), 1, 16)
+    return 0.7
   }
 
-  return baseStep
+  return 1
 }
 
 const resolveFrameStepMs = (pps: number) => {
@@ -107,7 +110,11 @@ function ReviewTimelineWorkspace({
   playheadMs,
   isPlaying,
   pixelsPerSecond,
+  minPixelsPerSecond,
+  maxPixelsPerSecond,
+  zoomStepFactor = DEFAULT_ZOOM_STEP_FACTOR,
   onPixelsPerSecondChange,
+  onViewportWidthChange,
   onAddBoundary,
   onDeleteBoundary,
   onSetPlayhead,
@@ -134,6 +141,9 @@ function ReviewTimelineWorkspace({
   const trackHeight = 84
   const trackY = 20
   const canvasHeight = 160
+  const safeMinPixelsPerSecond = Math.max(0.001, minPixelsPerSecond)
+  const safeMaxPixelsPerSecond = Math.max(maxPixelsPerSecond, safeMinPixelsPerSecond + ZOOM_MIN_RANGE_EPSILON)
+  const safeZoomStepFactor = zoomStepFactor > 1 ? zoomStepFactor : DEFAULT_ZOOM_STEP_FACTOR
 
   const totalWidth = useMemo(
     () => Math.max(900, Math.round((durationMs / 1000) * pixelsPerSecond)),
@@ -161,6 +171,13 @@ function ReviewTimelineWorkspace({
 
     return () => observer.disconnect()
   }, [])
+
+  useEffect(() => {
+    if (!onViewportWidthChange || contentViewportWidth <= 0) {
+      return
+    }
+    onViewportWidthChange(contentViewportWidth)
+  }, [contentViewportWidth, onViewportWidthChange])
 
   const setPendingZoomAnchorByViewportX = (viewportX: number) => {
     if (durationMs <= 0 || !contentRef.current) {
@@ -513,12 +530,14 @@ function ReviewTimelineWorkspace({
     const viewportX = clamp(event.clientX - rect.left, 0, rect.width)
     const anchorX = clamp(viewportX + scrollLeft, 0, totalWidth)
     const anchorMs = xToMs(anchorX)
-    const zoomStep = resolveZoomStep(pixelsPerSecond, event.deltaY)
-    const zoomDirection = event.deltaY < 0 ? 1 : -1
+    const zoomExponent = resolveZoomExponent(event.deltaY)
+    const zoomFactor = Math.pow(safeZoomStepFactor, zoomExponent)
+    const nextPixelsPerSecondRaw =
+      event.deltaY < 0 ? pixelsPerSecond * zoomFactor : pixelsPerSecond / zoomFactor
     const nextPixelsPerSecond = clamp(
-      pixelsPerSecond + zoomDirection * zoomStep,
-      MIN_PIXELS_PER_SECOND,
-      MAX_PIXELS_PER_SECOND
+      Math.round(nextPixelsPerSecondRaw * 100) / 100,
+      safeMinPixelsPerSecond,
+      safeMaxPixelsPerSecond
     )
 
     if (nextPixelsPerSecond === pixelsPerSecond) {

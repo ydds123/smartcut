@@ -7,8 +7,62 @@ import { ReviewShotSummaryPanel } from './ReviewShotSummaryPanel'
 import { ReviewTimelineWorkspace, type ReviewTimelineWorkspaceHandle } from './ReviewTimelineWorkspace'
 import { clamp, resolveAssetUrl } from './reviewUtils'
 
-const MIN_PIXELS_PER_SECOND = 10
-const MAX_PIXELS_PER_SECOND = 200
+const ABS_MIN_PIXELS_PER_SECOND = 1
+const ABS_MAX_PIXELS_PER_SECOND = 5000
+const ZOOM_MIN_FACTOR_FROM_FIT = 0.25
+const ZOOM_MAX_FACTOR_FROM_FIT = 40
+const ZOOM_RANGE_EPSILON = 0.001
+const DEFAULT_TIMELINE_VIEWPORT_WIDTH = 1200
+
+interface ZoomBounds {
+  minPps: number
+  maxPps: number
+}
+
+function resolveZoomBounds(durationMs: number, viewportWidth: number): ZoomBounds {
+  const safeDurationSec = Math.max(durationMs / 1000, 1)
+  const safeViewportWidth = Number.isFinite(viewportWidth) && viewportWidth > 0
+    ? viewportWidth
+    : DEFAULT_TIMELINE_VIEWPORT_WIDTH
+
+  const fitPps = safeViewportWidth / safeDurationSec
+  const minPps = clamp(
+    fitPps * ZOOM_MIN_FACTOR_FROM_FIT,
+    ABS_MIN_PIXELS_PER_SECOND,
+    ABS_MAX_PIXELS_PER_SECOND
+  )
+  const maxPps = clamp(
+    fitPps * ZOOM_MAX_FACTOR_FROM_FIT,
+    minPps + ZOOM_RANGE_EPSILON,
+    ABS_MAX_PIXELS_PER_SECOND
+  )
+
+  return { minPps, maxPps }
+}
+
+function normalizedToPixelsPerSecond(normalized: number, bounds: ZoomBounds): number {
+  const min = Math.max(bounds.minPps, ABS_MIN_PIXELS_PER_SECOND)
+  const max = Math.max(bounds.maxPps, min + ZOOM_RANGE_EPSILON)
+  const t = clamp(normalized, 0, 1)
+
+  if (max - min <= ZOOM_RANGE_EPSILON) {
+    return min
+  }
+
+  return min * Math.pow(max / min, t)
+}
+
+function pixelsPerSecondToNormalized(pixelsPerSecond: number, bounds: ZoomBounds): number {
+  const min = Math.max(bounds.minPps, ABS_MIN_PIXELS_PER_SECOND)
+  const max = Math.max(bounds.maxPps, min + ZOOM_RANGE_EPSILON)
+  const clampedPps = clamp(pixelsPerSecond, min, max)
+
+  if (max - min <= ZOOM_RANGE_EPSILON) {
+    return 0
+  }
+
+  return Math.log(clampedPps / min) / Math.log(max / min)
+}
 
 export function ReviewModal() {
   const { isReviewModalOpen, reviewTaskId, closeReviewModal, openTimeline, addToast } = useUIStore()
@@ -21,6 +75,7 @@ export function ReviewModal() {
   const [videoDurationMs, setVideoDurationMs] = useState(0)
   const [videoLoadFailed, setVideoLoadFailed] = useState(false)
   const [pixelsPerSecond, setPixelsPerSecond] = useState(50)
+  const [timelineViewportWidth, setTimelineViewportWidth] = useState(DEFAULT_TIMELINE_VIEWPORT_WIDTH)
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const timelineRef = useRef<ReviewTimelineWorkspaceHandle | null>(null)
 
@@ -33,6 +88,24 @@ export function ReviewModal() {
   const isTimelineReady = data?.status === 'TIMELINE_READY'
   const sourceVideoUrl = useMemo(() => resolveAssetUrl(taskDetail?.filePath ?? null), [taskDetail?.filePath])
   const effectiveDurationMs = videoDurationMs > 0 ? videoDurationMs : durationMs
+  const zoomBounds = useMemo(
+    () => resolveZoomBounds(effectiveDurationMs, timelineViewportWidth),
+    [effectiveDurationMs, timelineViewportWidth]
+  )
+  const zoomNormalized = useMemo(
+    () => pixelsPerSecondToNormalized(pixelsPerSecond, zoomBounds),
+    [pixelsPerSecond, zoomBounds]
+  )
+
+  useEffect(() => {
+    setPixelsPerSecond((current) => {
+      const next = clamp(current, zoomBounds.minPps, zoomBounds.maxPps)
+      if (Math.abs(next - current) <= ZOOM_RANGE_EPSILON) {
+        return current
+      }
+      return next
+    })
+  }, [zoomBounds])
 
   useEffect(() => {
     if (!data) {
@@ -373,10 +446,30 @@ export function ReviewModal() {
     timeline.prepareExternalZoomAnchorByMs(playheadMs)
   }, [playheadMs])
 
+  const handleTimelineViewportWidthChange = useCallback((width: number) => {
+    if (!Number.isFinite(width) || width <= 0) {
+      return
+    }
+
+    setTimelineViewportWidth((current) => {
+      if (Math.abs(current - width) < 1) {
+        return current
+      }
+      return width
+    })
+  }, [])
+
+  const handlePixelsPerSecondChange = useCallback((nextPixelsPerSecond: number) => {
+    const clamped = clamp(nextPixelsPerSecond, zoomBounds.minPps, zoomBounds.maxPps)
+    setPixelsPerSecond(Math.round(clamped * 100) / 100)
+  }, [zoomBounds])
+
   const handleZoomSliderChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     prepareZoomAnchor()
-    setPixelsPerSecond(Number(event.target.value))
-  }, [prepareZoomAnchor])
+    const normalized = clamp(Number(event.target.value) / 100, 0, 1)
+    const mapped = normalizedToPixelsPerSecond(normalized, zoomBounds)
+    setPixelsPerSecond(Math.round(mapped * 100) / 100)
+  }, [prepareZoomAnchor, zoomBounds])
 
   if (!isReviewModalOpen) {
     return null
@@ -500,13 +593,14 @@ export function ReviewModal() {
                   <span className="text-[#71717a]">缩放</span>
                   <input
                     type="range"
-                    min={MIN_PIXELS_PER_SECOND}
-                    max={MAX_PIXELS_PER_SECOND}
-                    value={pixelsPerSecond}
+                    min={0}
+                    max={100}
+                    step={1}
+                    value={Math.round(zoomNormalized * 100)}
                     onChange={handleZoomSliderChange}
                     className="h-1.5 w-32 accent-[#2563eb]"
                   />
-                  <span className="w-14 text-right font-mono">{pixelsPerSecond}px/s</span>
+                  <span className="w-14 text-right font-mono">{Math.round(pixelsPerSecond)}px/s</span>
                 </div>
               </div>
 
@@ -520,7 +614,11 @@ export function ReviewModal() {
                     playheadMs={playheadMs}
                     isPlaying={isPlaying}
                     pixelsPerSecond={pixelsPerSecond}
-                    onPixelsPerSecondChange={setPixelsPerSecond}
+                    minPixelsPerSecond={zoomBounds.minPps}
+                    maxPixelsPerSecond={zoomBounds.maxPps}
+                    zoomStepFactor={1.08}
+                    onPixelsPerSecondChange={handlePixelsPerSecondChange}
+                    onViewportWidthChange={handleTimelineViewportWidthChange}
                     onAddBoundary={handleAddBoundary}
                     onDeleteBoundary={handleDeleteBoundary}
                     onSetPlayhead={seekPlayhead}
