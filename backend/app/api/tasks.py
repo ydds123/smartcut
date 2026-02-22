@@ -361,6 +361,23 @@ def finalize_task(task_id: str, db: Session = Depends(get_db)):
     return {"success": True}
 
 
+@router.post("/tasks/{task_id}/return-to-review")
+def return_to_review(task_id: str, db: Session = Depends(get_db)):
+    """从 TIMELINE_READY 返回到 REVIEW_PENDING，删除已切分文件。"""
+    task = db.query(Task).filter(Task.id == task_id).first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    if task.status != "TIMELINE_READY":
+        raise HTTPException(status_code=409, detail="Task not in TIMELINE_READY state")
+
+    FileService.delete_split_assets(task_id)
+    db.query(Scene).filter(Scene.task_id == task_id).delete()
+    task.status = "REVIEW_PENDING"
+    task.total_scenes = None
+    db.commit()
+    return {"success": True}
+
+
 @router.get("/tasks/{task_id}/frame")
 def get_frame(
     task_id: str,
