@@ -48,6 +48,24 @@ export default {
         'border-default': tailwindColors['border-default'],
         'border-light': tailwindColors['border-light'],
         'border-focus': tailwindColors['border-focus'],
+
+        // 状态背景
+        'success-bg': '#E6FFEB',
+        'warning-bg': '#FFF7E8',
+        'danger-bg': '#FFECE8',
+        'info-bg': '#E8F3FF',
+
+        // 状态文字
+        'success-text': '#0F766E',
+        'warning-text': '#9A5700',
+        'danger-text': '#B91C1C',
+        'info-text': '#1D4ED8',
+
+        // 状态边框
+        'success-border': '#00B42A',
+        'warning-border': '#FF7D00',
+        'danger-border': '#F53F3F',
+        'info-border': '#91B4FF',
       },
 
       // 字体
