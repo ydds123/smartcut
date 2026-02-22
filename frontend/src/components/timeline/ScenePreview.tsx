@@ -36,14 +36,14 @@ export function ScenePreview({ scene }: ScenePreviewProps) {
         )}
 
         {/* 时间码 */}
-        <div className="text-sm text-gray-600">
+        <div className="text-sm text-[#d4d4d8]">
           <span className="font-mono">{formatTime(scene.startMs)}</span>
           <span className="mx-2">→</span>
           <span className="font-mono">{formatTime(scene.endMs)}</span>
         </div>
 
         {/* 序号 */}
-        <div className="text-xs text-gray-500">
+        <div className="text-xs text-[#71717a]">
           镜头 #{scene.sequenceIndex + 1}
         </div>
       </div>

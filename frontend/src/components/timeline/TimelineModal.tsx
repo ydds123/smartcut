@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { useFinalizeTask } from '@/hooks/useTasks'
 import { taskService } from '@/services/taskService'
-import type { QualityFlags, Scene, SuspectSegment, TaskStatus } from '@/types/task'
+import type { Scene, TaskStatus } from '@/types/task'
 import { TimelineModalErrorBoundary } from '@/components/error/TimelineModalErrorBoundary'
 import { useDraggableModal } from '@/hooks/useDraggableModal'
 
@@ -301,7 +301,7 @@ function SceneListItem({
       <div className="relative flex w-5 shrink-0 justify-center">
         <span
           className={`relative z-10 mt-3 h-3.5 w-3.5 rounded-full border-2 ${
-            isSelected ? 'border-[#2f8cff] bg-[#2f8cff]' : 'border-[#2f8cff] bg-white'
+            isSelected ? 'border-primary bg-primary' : 'border-primary bg-[#09090b]'
           }`}
         />
       </div>
@@ -309,11 +309,11 @@ function SceneListItem({
       <div
         className={`flex-1 rounded-[10px] border p-1.5 transition-colors ${
           isSelected
-            ? 'border-[#2f8cff] bg-[#edf5ff] shadow-[inset_0_0_0_1px_rgba(47,140,255,0.2)]'
-            : 'border-[#e5e9f1] bg-white hover:bg-[#f8faff]'
+            ? 'border-primary bg-info-bg shadow-[inset_0_0_0_1px_rgba(47,140,255,0.2)]'
+            : 'border-[#27272a] bg-[#18181b] hover:bg-[#1c1c1f]'
         }`}
       >
-        <div className="relative aspect-[8/5] w-full overflow-hidden rounded-md border border-[#2f8cff] bg-[#dfe9ff]">
+        <div className={`relative aspect-[8/5] w-full overflow-hidden rounded-md border ${isSelected ? 'border-primary bg-info-bg' : 'border-[#27272a] bg-[#0f0f0f]'}`}>
           {previewUrl && !imageError ? (
             <img
               src={previewUrl}
@@ -322,7 +322,7 @@ function SceneListItem({
               onError={() => setImageError(true)}
             />
           ) : (
-            <div className="flex h-full w-full items-center justify-center text-[10px] text-[#9aa3b5]">
+            <div className="flex h-full w-full items-center justify-center text-[10px] text-[#71717a]">
               无预览
             </div>
           )}
@@ -339,7 +339,7 @@ function SceneListItem({
 }
 
 export function TimelineModal() {
-  const { isTimelineOpen, selectedTaskId, closeTimeline, openReviewModal, addToast } = useUIStore()
+  const { isTimelineOpen, selectedTaskId, closeTimeline, addToast } = useUIStore()
   const { modalRef, modalStyle, onHandlePointerDown, dragging } = useDraggableModal({
     isOpen: isTimelineOpen,
   })
@@ -351,10 +351,6 @@ export function TimelineModal() {
   const [selectedSceneIndex, setSelectedSceneIndex] = useState<number | null>(null)
   const [taskStatus, setTaskStatus] = useState<TaskStatus | null>(null)
   const [taskDisplayName, setTaskDisplayName] = useState<string>('')
-  const [qualityFlags, setQualityFlags] = useState<QualityFlags | null>(null)
-  const [suspectSegments, setSuspectSegments] = useState<SuspectSegment[]>([])
-  const [showSuspectsOnly, setShowSuspectsOnly] = useState(false)
-
   const [searchQuery, setSearchQuery] = useState('')
   const [sceneMarks, setSceneMarks] = useState<Record<string, SceneMark>>({})
   const [selectedSceneIds, setSelectedSceneIds] = useState<Set<string>>(new Set())
@@ -411,20 +407,9 @@ export function TimelineModal() {
     [scenes, selectedSceneIds]
   )
 
-  const suspectIndexSet = useMemo(() => {
-    return new Set(
-      suspectSegments
-        .map((segment) => segment.sequenceIndex)
-        .filter((value) => Number.isFinite(value))
-    )
-  }, [suspectSegments])
-
   const visibleSceneEntries = useMemo(
-    () =>
-      scenes
-        .map((scene, index) => ({ scene, index }))
-        .filter((entry) => !showSuspectsOnly || suspectIndexSet.has(entry.index)),
-    [scenes, showSuspectsOnly, suspectIndexSet]
+    () => scenes.map((scene, index) => ({ scene, index })),
+    [scenes]
   )
 
   const toggleMarker = useCallback((markerId: string) => {
@@ -666,9 +651,6 @@ export function TimelineModal() {
       setScenes(sortedScenes)
       setTaskStatus(taskDetail.status)
       setTaskDisplayName(taskDetail.displayName ?? '')
-      setQualityFlags(taskDetail.qualityFlags ?? null)
-      setSuspectSegments(taskDetail.suspectSegments ?? [])
-      setShowSuspectsOnly(false)
       setSceneMarks(storedMarks)
       setSelectedSceneIds(validSelectedIds)
       setSelectedMarkerIds(validStoredMarkers)
@@ -698,8 +680,6 @@ export function TimelineModal() {
       setError('加载镜头失败，请稍后重试')
       setScenes([])
       setTaskStatus(null)
-      setQualityFlags(null)
-      setSuspectSegments([])
       setSelectedSceneIndex(null)
       setSelectedSceneIds(new Set())
       setSelectedMarkerIds(new Set())
@@ -722,9 +702,6 @@ export function TimelineModal() {
       setSearchQuery('')
       setTaskStatus(null)
       setTaskDisplayName('')
-      setQualityFlags(null)
-      setSuspectSegments([])
-      setShowSuspectsOnly(false)
       setAutoContinueEnabled(false)
       setIsMuted(false)
       setPlaybackRate(1)
@@ -1168,14 +1145,6 @@ export function TimelineModal() {
     })
   }, [addToast, selectedScenes])
 
-  const handleReturnToReview = useCallback(() => {
-    if (!selectedTaskId) {
-      return
-    }
-    closeTimeline()
-    openReviewModal(selectedTaskId)
-  }, [closeTimeline, openReviewModal, selectedTaskId])
-
   const handleFinalize = useCallback(async () => {
     if (!selectedTaskId) {
       return
@@ -1214,17 +1183,17 @@ export function TimelineModal() {
           data-testid="timeline-modal"
           ref={modalRef}
           style={modalStyle}
-          className="relative flex h-[86vh] min-h-[720px] w-full max-w-[1380px] flex-col overflow-hidden rounded-2xl border border-[#dce2ee] bg-[#f2f4f8] shadow-[0_18px_45px_rgba(15,23,42,0.24)]"
+          className="relative flex h-[86vh] min-h-[720px] w-full max-w-[1380px] flex-col overflow-hidden rounded-2xl border border-[#27272a] bg-[#09090b] shadow-[0_18px_45px_rgba(15,23,42,0.24)]"
         >
           <div
-            className={`flex items-center justify-between border-b border-[#e4e8f1] bg-white px-6 py-3.5 ${dragging ? 'cursor-grabbing' : 'cursor-move'}`}
+            className={`flex items-center justify-between border-b border-[#27272a] bg-[#09090b] px-6 py-3.5 ${dragging ? 'cursor-grabbing' : 'cursor-move'}`}
             onPointerDown={onHandlePointerDown}
           >
             <div className="min-w-0">
-              <h2 id="timeline-modal-title" className="text-[26px] font-semibold leading-8 text-[#1f2329]">
+              <h2 id="timeline-modal-title" className="text-[26px] font-semibold leading-8 text-[#d4d4d8]">
                 时间轴工作台
               </h2>
-              <p className="truncate text-sm text-[#6b7383]">
+              <p className="truncate text-sm text-[#71717a]">
                 {taskDisplayName || selectedTaskId || '未命名任务'}
               </p>
             </div>
@@ -1233,16 +1202,9 @@ export function TimelineModal() {
                 <>
                   <button
                     type="button"
-                    onClick={handleReturnToReview}
-                    className="inline-flex h-8 items-center rounded-md border border-[#d8deea] bg-white px-3 text-sm font-medium text-[#4e5969] transition-colors hover:bg-[#f4f7fc]"
-                  >
-                    返回调整
-                  </button>
-                  <button
-                    type="button"
                     onClick={handleFinalize}
                     disabled={finalizeTask.isPending}
-                    className="inline-flex h-8 items-center rounded-md bg-[#2563eb] px-3 text-sm font-medium text-white transition-colors hover:bg-[#1d4ed8] disabled:cursor-not-allowed disabled:bg-[#9eb8f7]"
+                    className="inline-flex h-8 items-center rounded-md bg-primary px-3 text-sm font-medium text-white transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:bg-[#3f3f46]"
                   >
                     {finalizeTask.isPending ? '提交中...' : '完成'}
                   </button>
@@ -1252,7 +1214,7 @@ export function TimelineModal() {
                 type="button"
                 onClick={closeTimeline}
                 aria-label="关闭时间轴"
-                className="inline-flex h-8 w-8 items-center justify-center rounded-full text-[#4e5969] transition-colors hover:bg-[#f1f4fa]"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-full text-[#71717a] transition-colors hover:bg-[#27272a]"
               >
                 <svg className="h-4.5 w-4.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path
@@ -1270,13 +1232,13 @@ export function TimelineModal() {
             {loading ? (
               <div className="flex h-full items-center justify-center">
                 <div className="flex flex-col items-center gap-3">
-                  <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-500 border-t-transparent" />
-                  <p className="text-sm text-[#667085]">加载镜头中...</p>
+                  <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+                  <p className="text-sm text-[#71717a]">加载镜头中...</p>
                 </div>
               </div>
             ) : error ? (
               <div className="flex h-full items-center justify-center">
-                <Card className="p-8 text-center">
+                <Card className="p-8 text-center !bg-[#18181b] !shadow-none">
                   <svg
                     className="mx-auto mb-3 h-10 w-10 text-red-500"
                     fill="none"
@@ -1290,7 +1252,7 @@ export function TimelineModal() {
                       d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
                     />
                   </svg>
-                  <p className="text-sm text-[#4e5969]">{error}</p>
+                  <p className="text-sm text-[#71717a]">{error}</p>
                   <div className="mt-4">
                     <Button variant="secondary" size="sm" onClick={loadScenes}>
                       重试
@@ -1300,36 +1262,24 @@ export function TimelineModal() {
               </div>
             ) : scenes.length === 0 ? (
               <div className="flex h-full items-center justify-center">
-                <Card className="p-8 text-center text-[#667085]">
+                <Card className="p-8 text-center text-[#71717a] !bg-[#18181b] !shadow-none">
                   <p className="text-sm">暂无镜头数据</p>
                   <p className="mt-1 text-xs">请先处理视频任务</p>
                 </Card>
               </div>
             ) : (
               <div className="flex h-full min-h-0 gap-3.5">
-                <Card className="flex w-[270px] min-w-[270px] flex-col border border-[#e2e7f0] bg-white p-2">
-                  <div className="mb-2 rounded-md border border-[#e7edf8] bg-[#f7f9fd] px-2 py-1.5 text-xs text-[#5f6a7f]">
-                    <div className="font-medium text-[#2d3648]">
-                      镜头 {scenes.length} · 疑点 {suspectSegments.length}
+                <Card className="flex w-[270px] min-w-[270px] flex-col border border-[#27272a] !bg-[#18181b] !shadow-none p-2">
+                  <div className="mb-2 rounded-md border border-[#27272a] bg-[#0f0f0f] px-2 py-1.5 text-xs text-[#71717a]">
+                    <div className="font-medium text-[#d4d4d8]">
+                      镜头 {scenes.length}
                     </div>
-                    <div className="mt-1 flex items-center justify-between">
-                      <span>
-                        过切: {qualityFlags?.overSegmented ? '是' : '否'} · 漏切:{' '}
-                        {qualityFlags?.underSegmented ? '是' : '否'}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => setShowSuspectsOnly((value) => !value)}
-                        className="rounded bg-white px-2 py-0.5 text-[11px] text-[#3864ca] hover:bg-[#eef3ff]"
-                      >
-                        {showSuspectsOnly ? '显示全部' : '仅看疑点'}
-                      </button>
-                    </div>
+
                   </div>
                   <div data-testid="timeline-scenes-grid" className="relative min-h-0 flex-1 overflow-y-auto pr-0.5">
                     <div className="relative space-y-2">
                       {visibleSceneEntries.length > 0 ? (
-                        <span className="pointer-events-none absolute bottom-0 left-[10px] top-0 w-px bg-[#b7d7ff]" />
+                        <span className="pointer-events-none absolute bottom-0 left-[10px] top-0 w-px bg-primary" />
                       ) : null}
                       {visibleSceneEntries.map(({ scene, index }) => (
                         <SceneListItem
@@ -1348,25 +1298,25 @@ export function TimelineModal() {
                   </div>
                 </Card>
 
-                <Card className="flex min-h-0 flex-1 flex-col border border-[#e2e7f0] bg-white p-3">
+                <Card className="flex min-h-0 flex-1 flex-col border border-[#27272a] !bg-[#18181b] !shadow-none p-3">
                   {selectedScene ? (
                     <>
-                      <div className="flex items-center justify-between border-b border-[#edf1f6] pb-2.5">
-                        <p className="text-xs font-semibold text-[#4e5969]">
+                      <div className="flex items-center justify-between border-b border-[#27272a] pb-2.5">
+                        <p className="text-xs font-semibold text-[#71717a]">
                           场景 #{selectedSceneIndex! + 1} · {formatTimeCode(selectedScene.startMs)} - {formatTimeCode(selectedScene.endMs)}
                         </p>
                         <div className="flex items-center gap-2">
                           <button
                             type="button"
                             onClick={() => setAutoContinueEnabled((value) => !value)}
-                            className="inline-flex h-8 items-center rounded-md border border-[#e1e6ef] bg-[#f5f7fb] px-3 text-xs font-medium text-[#495266]"
+                            className="inline-flex h-8 items-center rounded-md border border-[#27272a] bg-[#0f0f0f] px-3 text-xs font-medium text-[#71717a]"
                           >
                             自动续播（{autoContinueEnabled ? '已启用' : '未启用'}）
                           </button>
                           <button
                             type="button"
                             onClick={handleOpenSelectedSceneInNewTab}
-                            className="inline-flex h-8 items-center rounded-md border border-[#e1e6ef] bg-[#f5f7fb] px-3 text-xs font-medium text-[#495266]"
+                            className="inline-flex h-8 items-center rounded-md border border-[#27272a] bg-[#0f0f0f] px-3 text-xs font-medium text-[#71717a]"
                           >
                             新窗口打开原切片
                           </button>
@@ -1374,7 +1324,7 @@ export function TimelineModal() {
                       </div>
 
                       <div className="mt-2.5 flex min-h-0 flex-1 flex-col overflow-hidden">
-                        <div className="overflow-hidden rounded-lg border border-[#d9dfeb] bg-black">
+                        <div className="overflow-hidden rounded-lg border border-[#27272a] bg-black">
                           {selectedSceneVideoUrl ? (
                             <video
                               key={selectedScene.id}
@@ -1394,35 +1344,35 @@ export function TimelineModal() {
                               onTimeUpdate={handleVideoTimeUpdate}
                             />
                           ) : (
-                            <div className="flex aspect-video items-center justify-center text-sm text-[#b2b8c4]">
+                            <div className="flex aspect-video items-center justify-center text-sm text-[#71717a]">
                               该镜头暂无可预览视频文件
                             </div>
                           )}
                         </div>
 
-                        <div className="mt-2 rounded-md border border-[#e2e7f0] bg-[#f5f7fb] px-3 py-2 text-xs text-[#5f6a7f]">
+                        <div className="mt-2 rounded-md border border-[#27272a] bg-[#0f0f0f] px-3 py-2 text-xs text-[#71717a]">
                           已选择场景 #{selectedSceneIndex! + 1}
                         </div>
                       </div>
                     </>
                   ) : (
-                    <div className="flex h-full items-center justify-center text-sm text-[#6f7b90]">
+                    <div className="flex h-full items-center justify-center text-sm text-[#71717a]">
                       请选择镜头
                     </div>
                   )}
 
-                  <div className="mt-2 flex items-center justify-end gap-2 border-t border-[#edf1f6] pt-2">
+                  <div className="mt-2 flex items-center justify-end gap-2 border-t border-[#27272a] pt-2">
                     <button
                       type="button"
                       onClick={handleOpenSelectedSceneInNewTab}
-                      className="inline-flex h-8 items-center rounded-md border border-[#e1e6ef] bg-[#f5f7fb] px-3 text-sm font-medium text-[#4e5969]"
+                      className="inline-flex h-8 items-center rounded-md border border-[#27272a] bg-[#0f0f0f] px-3 text-sm font-medium text-[#71717a]"
                     >
                       打开原切片
                     </button>
                     <button
                       type="button"
                       onClick={closeTimeline}
-                      className="inline-flex h-8 items-center rounded-md border border-[#d5dbe7] bg-white px-3 text-sm font-medium text-[#4e5969]"
+                      className="inline-flex h-8 items-center rounded-md border border-[#27272a] bg-[#18181b] px-3 text-sm font-medium text-[#d4d4d8]"
                     >
                       关闭
                     </button>

@@ -7,6 +7,7 @@ interface ReviewTimelineWorkspaceProps {
   scenes: ReviewScene[]
   durationMs: number
   playheadMs: number
+  isPlaying: boolean
   pixelsPerSecond: number
   onPixelsPerSecondChange: (next: number) => void
   onAddBoundary: (ms: number) => void
@@ -104,6 +105,7 @@ function ReviewTimelineWorkspace({
   scenes,
   durationMs,
   playheadMs,
+  isPlaying,
   pixelsPerSecond,
   onPixelsPerSecondChange,
   onAddBoundary,
@@ -117,6 +119,8 @@ function ReviewTimelineWorkspace({
   const pendingZoomAnchorRef = useRef<ZoomAnchor | null>(null)
   const inFlightThumbKeysRef = useRef<Set<number>>(new Set())
   const thumbUsageRef = useRef<Map<number, number>>(new Map())
+  const lastManualMs = useRef(0)
+  const isProgrammaticScrollRef = useRef(false)
 
   const [contentViewportWidth, setContentViewportWidth] = useState(0)
   const [scrollLeft, setScrollLeft] = useState(0)
@@ -194,6 +198,25 @@ function ReviewTimelineWorkspace({
     setScrollLeft(nextScrollLeft)
     pendingZoomAnchorRef.current = null
   }, [durationMs, totalWidth, msToX])
+
+  useEffect(() => {
+    if (!isPlaying) return
+    if (Date.now() - lastManualMs.current < 3000) return
+
+    const content = contentRef.current
+    if (!content || durationMs <= 0) return
+
+    const playheadX = msToX(playheadMs)
+    const targetScrollLeft = playheadX - content.clientWidth / 2
+    const maxScrollLeft = Math.max(0, totalWidth - content.clientWidth)
+    const clamped = Math.max(0, Math.min(targetScrollLeft, maxScrollLeft))
+
+    isProgrammaticScrollRef.current = true
+    content.scrollLeft = clamped
+    requestAnimationFrame(() => {
+      isProgrammaticScrollRef.current = false
+    })
+  }, [playheadMs, isPlaying, durationMs, msToX, totalWidth])
 
   const resolveTimelinePosition = (
     clientX: number,
@@ -616,18 +639,7 @@ function ReviewTimelineWorkspace({
   }
 
   return (
-    <div className="grid h-full grid-cols-[120px_minmax(0,1fr)] bg-[#09090b]">
-      <div className="border-r border-[#27272a] bg-[#0f0f0f]">
-        <div className="h-8 border-b border-[#27272a] bg-[#0f0f0f]" />
-        <div className="flex h-[calc(100%-32px)] items-start p-2">
-          <div className="w-full rounded-md border border-[#27272a] bg-[#121216] p-2">
-            <p className="text-[11px] font-semibold text-[#e4e4e7]">视频轨</p>
-            <p className="mt-1 text-[10px] text-[#71717a]">{scenes.length} 镜头</p>
-          </div>
-        </div>
-      </div>
-
-      <div className="relative grid min-w-0 grid-rows-[32px_minmax(0,1fr)] overflow-hidden">
+    <div className="relative grid h-full min-w-0 grid-rows-[32px_minmax(0,1fr)] overflow-hidden bg-[#09090b]">
         <div
           ref={rulerViewportRef}
           className="overflow-hidden border-b border-[#27272a] bg-[#0f0f0f]"
@@ -676,7 +688,12 @@ function ReviewTimelineWorkspace({
           ref={contentRef}
           data-review-timeline-scroll="true"
           className="min-h-0 overflow-auto"
-          onScroll={(event) => setScrollLeft((event.target as HTMLDivElement).scrollLeft)}
+          onScroll={(event) => {
+            if (!isProgrammaticScrollRef.current) {
+              lastManualMs.current = Date.now()
+            }
+            setScrollLeft((event.target as HTMLDivElement).scrollLeft)
+          }}
           onWheel={handleWheel}
           onMouseMove={handleMouseMove}
           onMouseLeave={() => {
@@ -796,6 +813,7 @@ function ReviewTimelineWorkspace({
             style={{
               left: msToX(effectivePlayheadMs) - scrollLeft - PLAYHEAD_HALF_HIT_WIDTH + 1,
               width: PLAYHEAD_HIT_WIDTH,
+              transition: (isPlaying && !isDraggingPlayhead && !isSeekingByRuler) ? 'left 0.22s linear' : undefined,
             }}
             onPointerDown={handlePlayheadPointerDown}
             onPointerMove={handlePlayheadPointerMove}
@@ -825,7 +843,6 @@ function ReviewTimelineWorkspace({
           </div>
         </div>
       </div>
-    </div>
   )
 })
 
