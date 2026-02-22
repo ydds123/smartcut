@@ -5,7 +5,7 @@ import type { ReviewScene } from '@/types/task'
 import { ReviewPlaybackControls } from './ReviewPlaybackControls'
 import { ReviewShotSummaryPanel } from './ReviewShotSummaryPanel'
 import { ReviewTimelineWorkspace, type ReviewTimelineWorkspaceHandle } from './ReviewTimelineWorkspace'
-import { clamp, formatMs, formatMsFull, resolveAssetUrl } from './reviewUtils'
+import { clamp, resolveAssetUrl } from './reviewUtils'
 
 const MIN_PIXELS_PER_SECOND = 10
 const MAX_PIXELS_PER_SECOND = 200
@@ -434,27 +434,7 @@ export function ReviewModal() {
       ) : (
         <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_320px] overflow-hidden">
           <div className="flex min-h-0 min-w-0 flex-col bg-[#0a0a0a]">
-            <div className="border-b border-[#27272a] bg-[#0f0f0f] px-4 py-2 text-xs text-[#a1a1aa]">
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  className="rounded border border-[#3f3f46] bg-[#18181b] px-2 py-1 text-[#71717a]"
-                  disabled
-                >
-                  撤销
-                </button>
-                <button
-                  type="button"
-                  className="rounded border border-[#3f3f46] bg-[#18181b] px-2 py-1 text-[#71717a]"
-                  disabled
-                >
-                  重做
-                </button>
-                <span className="ml-2">播放头 {formatMsFull(playheadMs)} / {formatMs(effectiveDurationMs)}</span>
-              </div>
-            </div>
-
-            <div className="grid min-h-0 flex-1 grid-rows-[minmax(220px,52%)_56px_48px_minmax(220px,48%)]">
+            <div className="grid min-h-0 flex-1 grid-rows-[minmax(260px,7fr)_56px_48px_minmax(160px,3fr)]">
               <div className="border-b border-[#27272a] bg-[#0f0f0f] p-4">
                 <div className="mb-2 flex items-center justify-between">
                   <span className="text-sm font-semibold text-[#f4f4f5]">视频预览</span>
@@ -530,7 +510,7 @@ export function ReviewModal() {
                 </div>
               </div>
 
-              <div className="min-h-0 bg-[#09090b]">
+              <div className="min-h-0 bg-[#09090b] px-4">
                 {effectiveDurationMs > 0 ? (
                   <ReviewTimelineWorkspace
                     ref={timelineRef}
@@ -538,6 +518,7 @@ export function ReviewModal() {
                     scenes={scenes}
                     durationMs={effectiveDurationMs}
                     playheadMs={playheadMs}
+                    isPlaying={isPlaying}
                     pixelsPerSecond={pixelsPerSecond}
                     onPixelsPerSecondChange={setPixelsPerSecond}
                     onAddBoundary={handleAddBoundary}
@@ -556,8 +537,7 @@ export function ReviewModal() {
               taskId={reviewTaskId ?? ''}
               scenes={scenes}
               selectedIndex={selectedSceneIndex}
-              qualityFlags={taskDetail?.qualityFlags}
-              suspectSegments={taskDetail?.suspectSegments}
+              isPlaying={isPlaying}
               onSelect={jumpToScene}
             />
           </div>
