@@ -1,9 +1,12 @@
 node_modules/
 *.pyc
 __pycache__/
-data/uploads/
-data/tasks/
+backend/data/uploads/
+backend/data/tasks/
 *.db
+*.db-shm
+*.db-wal
 .env
 *.log
 .DS_Store
+.run-logs/
