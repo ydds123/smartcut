@@ -7,10 +7,10 @@ import { useUIStore } from '@/stores/uiStore'
 import {
   DEFAULT_PROCESSING_SETTINGS,
   loadProcessingSettings,
-  ProcessingConfigModal,
-  type ProcessingPanelSettings,
   toProcessTaskOptions,
-} from './ProcessingConfigModal'
+  type ProcessingPanelSettings,
+} from './processingConfigSettings'
+import { ProcessingConfigModal } from './ProcessingConfigModal'
 import type { Task } from '@/types/task'
 
 interface TaskListProps {

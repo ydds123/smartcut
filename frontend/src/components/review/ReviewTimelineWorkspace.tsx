@@ -196,14 +196,14 @@ function ReviewTimelineWorkspace({
     onViewportWidthChange(contentViewportWidth)
   }, [contentViewportWidth, onViewportWidthChange])
 
-  const setPendingZoomAnchorByViewportX = (viewportX: number) => {
+  const setPendingZoomAnchorByViewportX = useCallback((viewportX: number) => {
     if (durationMs <= 0 || !contentRef.current) {
       return
     }
     const normalizedViewportX = clamp(viewportX, 0, contentRef.current.clientWidth)
     const anchorX = clamp(normalizedViewportX + scrollLeft, 0, totalWidth)
     pendingZoomAnchorRef.current = { anchorMs: xToMs(anchorX), viewportX: normalizedViewportX }
-  }
+  }, [durationMs, scrollLeft, totalWidth, xToMs])
 
   useImperativeHandle(ref, () => ({
     prepareExternalZoomAnchorByMs: (ms: number) => {
@@ -214,7 +214,7 @@ function ReviewTimelineWorkspace({
       const targetX = msToX(targetMs)
       setPendingZoomAnchorByViewportX(targetX - scrollLeft)
     },
-  }), [durationMs, msToX, scrollLeft, totalWidth, xToMs])
+  }), [durationMs, msToX, scrollLeft, setPendingZoomAnchorByViewportX])
 
   useEffect(() => {
     const pendingAnchor = pendingZoomAnchorRef.current
