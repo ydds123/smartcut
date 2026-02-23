@@ -136,7 +136,10 @@ npm run dev -- --host localhost --port 5173
 后端：
 ```bash
 cd backend
+# 基础模式依赖（PySceneDetect + FastAPI）
 pip install -r requirements.txt
+# 可选：precision 模式（TransNetV2 融合）
+# pip install -r requirements-precision.txt
 python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 

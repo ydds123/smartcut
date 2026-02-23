@@ -4,6 +4,7 @@
 """
 import subprocess
 import os
+import csv
 from pathlib import Path
 from typing import Any, List, Tuple, Optional, Callable, Dict
 import logging
@@ -234,7 +235,7 @@ class VideoProcessor:
             if detector_type == "adaptive"
             else float(self.processing_config.get("scene_threshold", 27.0))
         )
-        stats_summary = self._read_stats_summary(stats_threshold)
+        stats_summary = self._read_stats_summary(stats_threshold, detector_type=detector_type)
 
         report: dict[str, Any] = {
             "fusion_mode": "pyscene_only",
@@ -360,13 +361,26 @@ class VideoProcessor:
             ])
 
         cmd.extend(["list-scenes", "-f", str(self.task_dir / "scenes.csv")])
+        timeout_sec = int(self.processing_config.get("scenedetect_timeout_sec", 600))
+        timeout_sec = max(30, min(timeout_sec, 3600))
+
+        def _safe_stderr(exc: BaseException) -> str:
+            if isinstance(exc, subprocess.CalledProcessError):
+                return (exc.stderr or "").strip()
+            if isinstance(exc, subprocess.TimeoutExpired):
+                stderr = exc.stderr or ""
+                if isinstance(stderr, bytes):
+                    return stderr.decode(errors="ignore").strip()
+                return str(stderr).strip()
+            return str(exc)
 
         try:
             result = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
-                check=True
+                check=True,
+                timeout=timeout_sec,
             )
             logger.info(f"Task {self.task_id}: 场景检测完成")
             logger.debug(f"PySceneDetect output: {result.stdout}")
@@ -374,24 +388,36 @@ class VideoProcessor:
             # 解析 CSV 文件获取场景时间点
             return self._parse_scene_list()
 
-        except subprocess.CalledProcessError as e:
-            logger.warning(f"Task {self.task_id}: 场景检测失败，回退默认配置 - {e.stderr}")
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as e:
+            logger.warning(f"Task {self.task_id}: 场景检测失败，回退默认配置 - {_safe_stderr(e)}")
             fallback_cmd = [
                 "scenedetect",
                 "-i",
                 self.video_path,
+                "--stats",
+                str(stats_file),
                 "detect-content",
                 "list-scenes",
                 "-f",
                 str(self.task_dir / "scenes.csv"),
             ]
-            subprocess.run(
-                fallback_cmd,
-                capture_output=True,
-                text=True,
-                check=True,
-            )
-            return self._parse_scene_list()
+            try:
+                subprocess.run(
+                    fallback_cmd,
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                    timeout=timeout_sec,
+                )
+                logger.info(f"Task {self.task_id}: 默认配置回退检测成功")
+                return self._parse_scene_list()
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as fallback_exc:
+                logger.error(
+                    "Task %s: 回退检测也失败，降级为整片单场景 - %s",
+                    self.task_id,
+                    _safe_stderr(fallback_exc),
+                )
+                return [(0, self._get_video_duration_ms())]
 
     def _parse_scene_list(self) -> List[Tuple[int, int]]:
         """解析 PySceneDetect 生成的 CSV 文件"""
@@ -402,18 +428,18 @@ class VideoProcessor:
             logger.warning(f"Task {self.task_id}: 场景列表文件不存在")
             return [(0, self._get_video_duration_ms())]
 
-        with open(csv_path, 'r') as f:
-            lines = f.readlines()
+        with open(csv_path, 'r', newline='') as f:
+            rows = list(csv.reader(f))
 
         # PySceneDetect CSV 格式:
         # 第1行: Timecode List: ...
         # 第2行: Scene Number,Start Frame,Start Timecode,...
         # 从第3行开始是数据
-        if len(lines) < 3:
+        if len(rows) < 3:
             logger.warning(f"Task {self.task_id}: 场景列表文件格式异常（行数不足）")
             return [(0, self._get_video_duration_ms())]
 
-        header_parts = [col.strip() for col in lines[1].split(',')]
+        header_parts = [col.strip() for col in rows[1]]
         try:
             start_col = header_parts.index("Start Timecode")
             end_col = header_parts.index("End Timecode")
@@ -422,13 +448,26 @@ class VideoProcessor:
             start_col = 2
             end_col = 5
 
-        for line in lines[2:]:
-            if line.strip():
-                parts = line.split(',')
-                if len(parts) > max(start_col, end_col):
+        for row_no, parts in enumerate(rows[2:], start=3):
+            if not parts or not any(str(col).strip() for col in parts):
+                continue
+            if len(parts) > max(start_col, end_col):
+                try:
                     start_ms = self._timecode_to_ms(parts[start_col].strip())
                     end_ms = self._timecode_to_ms(parts[end_col].strip())
-                    scenes.append((start_ms, end_ms))
+                except ValueError as exc:
+                    logger.warning("Task %s: 第 %s 行时间码无效，已跳过: %s", self.task_id, row_no, exc)
+                    continue
+                if end_ms <= start_ms:
+                    logger.warning(
+                        "Task %s: 第 %s 行时间区间非法（start=%s, end=%s），已跳过",
+                        self.task_id,
+                        row_no,
+                        start_ms,
+                        end_ms,
+                    )
+                    continue
+                scenes.append((start_ms, end_ms))
 
         if not scenes:
             logger.warning(f"Task {self.task_id}: 未检测到场景")
@@ -436,32 +475,43 @@ class VideoProcessor:
 
         return scenes
 
-    def _read_stats_summary(self, threshold: float) -> dict[str, Any]:
+    @staticmethod
+    def _find_stats_score_column(header: list[str], candidates: tuple[str, ...]) -> tuple[Optional[int], Optional[str]]:
+        for candidate in candidates:
+            candidate_lower = candidate.lower()
+            for idx, column_name in enumerate(header):
+                normalized = column_name.strip().lower()
+                if normalized == candidate_lower:
+                    return idx, column_name.strip()
+                if normalized.startswith(f"{candidate_lower} ") or normalized.startswith(f"{candidate_lower}("):
+                    return idx, column_name.strip()
+        return None, None
+
+    def _read_stats_summary(self, threshold: float, detector_type: str = "content") -> dict[str, Any]:
         """读取 PySceneDetect stats CSV，返回帧级分数摘要（用于检测置信度报告）。"""
         stats_path = self.task_dir / "scenes.stats.csv"
         if not stats_path.exists():
             return {}
 
         try:
-            with open(stats_path, 'r') as f:
-                lines = f.readlines()
+            with open(stats_path, 'r', newline='') as f:
+                rows = list(csv.reader(f))
 
-            if len(lines) < 2:
+            if len(rows) < 2:
                 return {}
 
-            header = [col.strip() for col in lines[0].split(',')]
-            score_col: Optional[int] = None
-            for candidate in ("content_val", "delta_lum", "delta_hue", "delta_sat"):
-                if candidate in header:
-                    score_col = header.index(candidate)
-                    break
+            header = [col.strip() for col in rows[0]]
+            if detector_type == "adaptive":
+                candidates = ("adaptive_ratio", "content_val", "delta_lum", "delta_hue", "delta_sat")
+            else:
+                candidates = ("content_val", "delta_lum", "delta_hue", "delta_sat", "adaptive_ratio")
+            score_col, score_column_name = self._find_stats_score_column(header, candidates)
 
             if score_col is None:
                 return {}
 
             scores: list[float] = []
-            for line in lines[1:]:
-                parts = line.split(',')
+            for parts in rows[1:]:
                 if len(parts) > score_col:
                     try:
                         scores.append(float(parts[score_col].strip()))
@@ -471,8 +521,11 @@ class VideoProcessor:
             if not scores:
                 return {}
 
-            near_miss_count = sum(1 for s in scores if threshold * 0.8 <= s < threshold)
+            near_miss_count = 0
+            if threshold > 0:
+                near_miss_count = sum(1 for s in scores if threshold * 0.8 <= s < threshold)
             return {
+                "stats_score_column": score_column_name,
                 "stats_score_max": round(max(scores), 3),
                 "stats_score_mean": round(sum(scores) / len(scores), 3),
                 "stats_near_miss_count": near_miss_count,
@@ -888,7 +941,7 @@ class VideoProcessor:
         scenes: List[Tuple[int, int]],
         progress_callback=None,
         output_indices: Optional[List[int]] = None,
-    ) -> List[str]:
+    ) -> List[Optional[str]]:
         """
         使用 FFmpeg 进度监控的视频切分
 
@@ -897,12 +950,12 @@ class VideoProcessor:
             progress_callback: 进度回调函数
 
         Returns:
-            List of output file paths
+            与 scenes 对齐的输出文件路径列表（失败项为 None）
         """
         logger.info(f"Task {self.task_id}: 开始视频切分，共 {len(scenes)} 个场景")
 
-        output_files = []
         total_scenes = len(scenes)
+        output_files: List[Optional[str]] = [None for _ in range(total_scenes)]
         if output_indices is not None and len(output_indices) != total_scenes:
             raise ValueError(
                 f"output_indices length mismatch: expected={total_scenes}, actual={len(output_indices)}"
@@ -912,8 +965,7 @@ class VideoProcessor:
         if use_copy:
             logger.info(f"Task {self.task_id}: split_copy_mode=True，使用 copy 模式切分")
 
-        # 获取视频总时长
-        total_duration = self._get_video_duration_ms() / 1000
+        ffmpeg_timeout_sec = max(1, int(getattr(settings, "FFMPEG_PROCESS_TIMEOUT_SEC", 600)))
 
         for i, (start_ms, end_ms) in enumerate(scenes):
             target_index = output_indices[i] if output_indices is not None else i
@@ -921,10 +973,6 @@ class VideoProcessor:
 
             # 创建进度监控器
             def on_scene_progress(progress_info):
-                # 计算当前场景在总体进度中的位置
-                scene_start = start_ms / 1000
-                scene_duration = (end_ms - start_ms) / 1000
-
                 # 场景内进度
                 scene_progress = progress_info['progress']
 
@@ -967,6 +1015,7 @@ class VideoProcessor:
                     str(output_file)
                 ]
 
+            process: subprocess.Popen | None = None
             try:
                 # 启动 FFmpeg 并监控进度
                 process = subprocess.Popen(
@@ -985,9 +1034,22 @@ class VideoProcessor:
                 monitor_thread.start()
 
                 # 等待完成
-                return_code = process.wait()
-                monitor.stop()
-                monitor_thread.join(timeout=1)
+                try:
+                    return_code = process.wait(timeout=ffmpeg_timeout_sec)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    monitor.stop()
+                    monitor_thread.join(timeout=1)
+                    logger.error(
+                        "Task %s: 场景 %s 切分超时（>%ss），已终止 FFmpeg 进程",
+                        self.task_id,
+                        i,
+                        ffmpeg_timeout_sec,
+                    )
+                    continue
+                finally:
+                    monitor.stop()
+                    monitor_thread.join(timeout=1)
 
                 if return_code != 0:
                     stderr_output = ""
@@ -1030,12 +1092,25 @@ class VideoProcessor:
                         stderr=subprocess.PIPE,
                         universal_newlines=True,
                     )
-                    fallback_proc.wait()
+                    try:
+                        fallback_code = fallback_proc.wait(timeout=ffmpeg_timeout_sec)
+                    except subprocess.TimeoutExpired:
+                        fallback_proc.kill()
+                        logger.error(
+                            "Task %s: 场景 %s 回退重编码超时（>%ss）",
+                            self.task_id,
+                            i,
+                            ffmpeg_timeout_sec,
+                        )
+                        continue
+                    if fallback_code != 0:
+                        logger.error("Task %s: 场景 %s 回退重编码失败（returncode=%s）", self.task_id, i, fallback_code)
+                        continue
                     if not output_file.exists() or output_file.stat().st_size <= 0:
                         logger.error(f"Task {self.task_id}: 场景 {i} 回退重编码也失败")
                         continue
 
-                output_files.append(str(output_file))
+                output_files[i] = str(output_file)
                 logger.info(f"Task {self.task_id}: 场景 {i} 切分完成")
 
             except subprocess.CalledProcessError as e:
@@ -1044,16 +1119,19 @@ class VideoProcessor:
                 # 继续处理其他场景
                 continue
             except Exception as e:
+                if process and process.poll() is None:
+                    process.kill()
                 logger.error(f"Task {self.task_id}: 场景 {i} 处理异常 - {str(e)}")
                 monitor.stop()
                 continue
 
-        logger.info(f"Task {self.task_id}: 视频切分完成，成功 {len(output_files)}/{len(scenes)} 个场景")
+        success_count = sum(1 for path in output_files if path)
+        logger.info(f"Task {self.task_id}: 视频切分完成，成功 {success_count}/{len(scenes)} 个场景")
         return output_files
 
     def generate_thumbnails_batch(
         self,
-        output_files: List[str],
+        output_files: List[Optional[str]],
         scenes: List[Tuple[int, int]],
         progress_callback=None,
         output_indices: Optional[List[int]] = None,
@@ -1088,14 +1166,16 @@ class VideoProcessor:
             # 获取场景时间信息
             scene_duration_ms = scenes[i][1] - scenes[i][0] if i < len(scenes) else 0
 
-            # 生成缩略图
-            success = self.generate_thumbnail(
-                str(video_file),
-                str(thumb_file),
-                timestamp_ms=None,
-                scene_start_ms=0,
-                scene_duration_ms=scene_duration_ms
-            )
+            success = False
+            if video_file:
+                # 仅对成功切分的场景生成缩略图。
+                success = self.generate_thumbnail(
+                    str(video_file),
+                    str(thumb_file),
+                    timestamp_ms=None,
+                    scene_start_ms=0,
+                    scene_duration_ms=scene_duration_ms
+                )
 
             # 每次都更新进度，无论成功失败
             if progress_callback:
@@ -1255,12 +1335,16 @@ class VideoProcessor:
     @staticmethod
     def _timecode_to_ms(timecode: str) -> int:
         """将时间码 (HH:MM:SS.mmm) 转换为毫秒"""
-        parts = timecode.split(':')
-        hours = int(parts[0])
-        minutes = int(parts[1])
-        seconds_parts = parts[2].split('.')
-        seconds = int(seconds_parts[0])
-        milliseconds = int(seconds_parts[1]) if len(seconds_parts) > 1 else 0
+        pattern = r"^(\d+):([0-5]\d):([0-5]\d)(?:\.(\d{1,3}))?$"
+        match = re.match(pattern, (timecode or "").strip())
+        if not match:
+            raise ValueError(f"invalid timecode format: {timecode!r}")
+
+        hours = int(match.group(1))
+        minutes = int(match.group(2))
+        seconds = int(match.group(3))
+        ms_raw = match.group(4) or "0"
+        milliseconds = int(ms_raw.ljust(3, "0")[:3])
 
         return (hours * 3600 + minutes * 60 + seconds) * 1000 + milliseconds
 
@@ -1278,6 +1362,7 @@ class VideoProcessor:
 
     def _get_video_duration_ms(self) -> int:
         """获取视频总时长（毫秒）"""
+        timeout_sec = max(1, int(getattr(settings, "FFPROBE_TIMEOUT_SEC", 30)))
         cmd = [
             "ffprobe",
             "-v", "error",
@@ -1287,14 +1372,24 @@ class VideoProcessor:
         ]
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=timeout_sec,
+            )
             duration_sec = float(result.stdout.strip())
             return int(duration_sec * 1000)
-        except subprocess.CalledProcessError:
+        except subprocess.TimeoutExpired:
+            logger.error("Task %s: ffprobe 获取时长超时（>%ss）", self.task_id, timeout_sec)
+            return 0
+        except (subprocess.CalledProcessError, ValueError):
             return 0
 
     def _get_video_fps(self) -> float:
         """获取视频帧率（fps）。"""
+        timeout_sec = max(1, int(getattr(settings, "FFPROBE_TIMEOUT_SEC", 30)))
         cmd = [
             "ffprobe",
             "-v", "error",
@@ -1305,7 +1400,16 @@ class VideoProcessor:
         ]
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=timeout_sec,
+            )
+        except subprocess.TimeoutExpired:
+            logger.error("Task %s: ffprobe 获取帧率超时（>%ss）", self.task_id, timeout_sec)
+            return 0.0
         except subprocess.CalledProcessError:
             return 0.0
 

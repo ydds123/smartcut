@@ -33,17 +33,18 @@ export const DEFAULT_PROCESSING_SETTINGS: ProcessingPanelSettings = {
     weightSat: 1,
     weightLum: 1,
     weightEdges: 0,
-    transnetThreshold: 0.35,
+    transnetThreshold: 0.3,
     transnetSoftCandidateMultiplier: 0.75,
-    transnetToleranceFrames: 10,
+    transnetToleranceFrames: 12,
     transnetWindowSize: 100,
     transnetAdditionalBoundaryThreshold: 0.55,
     transnetOnlyMinGapFrames: 12,
     useThresholdDetector: false,
     thresholdDetectorThreshold: 12,
-    thresholdDetectorFadebias: 0,
+    thresholdDetectorFadeBias: 0,
     mergeGapFrames: 0,
     splitCopyMode: false,
+    scenedetectTimeoutSec: 600,
   },
 }
 
@@ -66,6 +67,16 @@ function sanitizeOverrideConfig(
         value as ProcessingConfig[keyof ProcessingConfig]
     }
   })
+
+  // Backward compatibility for previous typo key in localStorage payload.
+  const legacyPayload = overrideConfig as Record<string, unknown>
+  if (
+    sanitized.thresholdDetectorFadeBias === undefined
+    && legacyPayload.thresholdDetectorFadebias !== undefined
+    && legacyPayload.thresholdDetectorFadebias !== null
+  ) {
+    sanitized.thresholdDetectorFadeBias = Number(legacyPayload.thresholdDetectorFadebias)
+  }
   return sanitized
 }
 
@@ -151,32 +162,35 @@ const NUMERIC_FIELDS: NumericFieldConfig[] = [
     speedTradeoff: '对速度影响很小，主要影响切分密度。',
     recommendedRange: '24 - 32（叙事片常用 27 - 30）',
     group: 'sensitivity',
+    min: 8,
     max: 60,
     step: 0.5,
   },
   {
     key: 'minSceneLenFrames',
     label: '最短镜头帧数',
-    description: '短于这个帧数的镜头会被合并掉。调大可减少碎片化切分，调小可保留快速切换。（参考：24fps 下 15帧 ≈ 0.6秒，30fps 下 ≈ 0.5秒）',
+    description: '短于这个帧数的镜头会被合并掉。调大可减少碎片化切分，调小可保留快速切换。',
     lowEffect: '允许更短镜头，能保留快速切换。',
     highEffect: '抑制碎片化，减少闪白/噪声造成的短镜头误切。',
     qualityTradeoff: '低值偏向防漏切，高值偏向防误切。',
     speedTradeoff: '速度影响很小，但高值会降低镜头数量。',
     recommendedRange: '10 - 30（当前默认 15）',
     group: 'min-scene',
+    min: 4,
     max: 300,
     step: 1,
   },
   {
     key: 'minSceneDurationMsFloor',
     label: '最短镜头时长(ms)',
-    description: '短于这个时长（毫秒）的镜头会被合并。1000 = 1秒，调大可减少碎片镜头。',
+    description: '短于这个时长（毫秒）的镜头会被合并。1000 = 1 秒，调大可减少碎片镜头。',
     lowEffect: '允许更短镜头通过，快切片段保留更多。',
     highEffect: '强制合并短镜头，切分更稳定。',
     qualityTradeoff: '低值防漏切，高值防误切和碎片化。',
     speedTradeoff: '对检测速度影响小，但高值会降低镜头数量。',
     recommendedRange: '600 - 1200（默认 1000）',
     group: 'min-scene',
+    min: 200,
     max: 3000,
     step: 50,
   },
@@ -190,6 +204,7 @@ const NUMERIC_FIELDS: NumericFieldConfig[] = [
     speedTradeoff: '高值通常更快（计算量更小）。',
     recommendedRange: '1 - 2（噪声多可用 2）',
     group: 'stability',
+    min: 1,
     max: 8,
     step: 1,
   },
@@ -203,6 +218,8 @@ const NUMERIC_FIELDS: NumericFieldConfig[] = [
     speedTradeoff: '高值提速明显。',
     recommendedRange: '0 - 1（质量优先建议 0）',
     group: 'stability',
+    min: 0,
+    max: 10,
     step: 1,
   },
   {
@@ -257,6 +274,8 @@ const NUMERIC_FIELDS: NumericFieldConfig[] = [
     speedTradeoff: '高值会增加处理耗时。',
     recommendedRange: '0 - 1（若不依赖缩略图可设 0）',
     group: 'misc',
+    min: 0,
+    max: 3,
     step: 1,
   },
   {
@@ -269,29 +288,58 @@ const NUMERIC_FIELDS: NumericFieldConfig[] = [
     speedTradeoff: '对速度影响很小。',
     recommendedRange: '8 - 20（默认 12）',
     group: 'misc',
+    boolScope: 'useThresholdDetector',
     min: 0,
     max: 255,
     step: 1,
   },
   {
+    key: 'thresholdDetectorFadeBias',
+    label: '淡入淡出位置偏移(%)',
+    description: '淡入淡出切点在过渡区间中的偏移百分比。-100 更靠前，+100 更靠后，0 在中点。',
+    lowEffect: '更偏向过渡起始帧。',
+    highEffect: '更偏向过渡结束帧。',
+    qualityTradeoff: '低值可提前切点，高值可延后切点。',
+    speedTradeoff: '对速度影响几乎没有。',
+    recommendedRange: '-20 - 20（默认 0）',
+    group: 'misc',
+    boolScope: 'useThresholdDetector',
+    min: -100,
+    max: 100,
+    step: 1,
+  },
+  {
     key: 'mergeGapFrames',
     label: '合并碎镜头间隔(帧)',
-    description: '相邻切点间隔小于此帧数时自动合并，减少过于密集的切分。0 = 不启用合并。（参考：24fps 下 24帧 = 1秒，30fps 下 30帧 = 1秒）',
+    description: '相邻切点间隔小于此帧数时自动合并，减少过于密集的切分。0 = 不启用合并。',
     lowEffect: '不合并或仅合并极短间隔。',
     highEffect: '合并更多相邻碎镜头，镜头数减少。',
     qualityTradeoff: '高值防碎片化，但可能合并真实切点。',
     speedTradeoff: '对速度影响极小。',
     recommendedRange: '0（不启用）或 3 - 8',
     group: 'min-scene',
+    min: 0,
+    max: 600,
+    step: 1,
+  },
+  {
+    key: 'transnetThreshold',
     label: 'TransNet 确认阈值',
-    description: 'TransNetV2 确认切点的最低置信度（0~1）。越小保留越多切点，越大越严格只保留高把握的。',
+    description: 'TransNetV2 确认切点的最低置信度（0~1）。越小保留越多切点，越大越严格。',
     lowEffect: '更多候选边界会被保留，漏切更少。',
     highEffect: '仅保留高置信边界，误切更少。',
     qualityTradeoff: '低值防漏切，高值防误切。',
     speedTradeoff: '主要影响边界筛选，不显著影响推理耗时。',
-    recommendedRange: '0.30 - 0.45（默认 0.35）',
+    recommendedRange: '0.30 - 0.45（默认 0.30）',
     group: 'transnet',
     modeScope: 'precision',
+    boolScope: 'useTransnet',
+    min: 0,
+    max: 1,
+    step: 0.01,
+  },
+  {
+    key: 'transnetSoftCandidateMultiplier',
     label: 'TransNet 软保留倍率',
     description: '候选切点的软保留倍率，与确认阈值相乘得到软阈值。越小保留越多候选，越大越严格。',
     lowEffect: '更容易保留候选边界，减少漏切。',
@@ -301,6 +349,7 @@ const NUMERIC_FIELDS: NumericFieldConfig[] = [
     recommendedRange: '0.65 - 0.85（默认 0.75）',
     group: 'transnet',
     modeScope: 'precision',
+    boolScope: 'useTransnet',
     min: 0.5,
     max: 1,
     step: 0.01,
@@ -316,6 +365,7 @@ const NUMERIC_FIELDS: NumericFieldConfig[] = [
     recommendedRange: '0.50 - 0.70（默认 0.55）',
     group: 'transnet',
     modeScope: 'precision',
+    boolScope: 'useTransnet',
     min: 0,
     max: 1,
     step: 0.01,
@@ -323,14 +373,15 @@ const NUMERIC_FIELDS: NumericFieldConfig[] = [
   {
     key: 'transnetToleranceFrames',
     label: 'TransNet 匹配容差(帧)',
-    description: '候选切点与 TransNetV2 峰值匹配的容差帧数。越大匹配越宽松，越小越严格。（参考：24fps 下 10帧 ≈ 0.4秒，30fps 下 ≈ 0.3秒）',
+    description: '候选切点与 TransNetV2 峰值匹配的容差帧数。越大匹配越宽松，越小越严格。',
     lowEffect: '匹配更严格，可能漏保留边界。',
     highEffect: '匹配更宽松，更多候选会被保留。',
     qualityTradeoff: '低值防误切，高值防漏切。',
     speedTradeoff: '性能影响小。',
-    recommendedRange: '8 - 16（默认 10）',
+    recommendedRange: '8 - 16（默认 12）',
     group: 'transnet',
     modeScope: 'precision',
+    boolScope: 'useTransnet',
     min: 1,
     max: 100,
     step: 1,
@@ -338,7 +389,7 @@ const NUMERIC_FIELDS: NumericFieldConfig[] = [
   {
     key: 'transnetOnlyMinGapFrames',
     label: 'TransNet 最小间隔(帧)',
-    description: 'TransNetV2 补充切点与已有切点的最小间隔帧数，防止切点过于密集。（参考：24fps 下 12帧 = 0.5秒，30fps 下 ≈ 0.4秒）',
+    description: 'TransNetV2 补充切点与已有切点的最小间隔帧数，防止切点过于密集。',
     lowEffect: '允许更密集边界，容易切碎。',
     highEffect: '抑制近邻补边，边界更平滑。',
     qualityTradeoff: '低值防漏切，高值防误切。',
@@ -346,6 +397,7 @@ const NUMERIC_FIELDS: NumericFieldConfig[] = [
     recommendedRange: '10 - 20（默认 12）',
     group: 'transnet',
     modeScope: 'precision',
+    boolScope: 'useTransnet',
     min: 1,
     max: 300,
     step: 1,
@@ -353,7 +405,7 @@ const NUMERIC_FIELDS: NumericFieldConfig[] = [
   {
     key: 'transnetWindowSize',
     label: 'TransNet 滑动窗口(帧)',
-    description: 'TransNetV2 每次分析的滑动窗口大小（帧）。越大上下文越充分，边界越稳健；越小越灵敏。（参考：24fps 下 100帧 ≈ 4秒，30fps 下 ≈ 3.3秒）',
+    description: 'TransNetV2 每次分析的滑动窗口大小。越大上下文越充分，边界越稳健；越小越灵敏。',
     lowEffect: '窗口更小，对瞬时边界更灵敏。',
     highEffect: '上下文更充分，边界更稳健。',
     qualityTradeoff: '低值灵敏，高值稳健。',
@@ -361,9 +413,24 @@ const NUMERIC_FIELDS: NumericFieldConfig[] = [
     recommendedRange: '80 - 140（默认 100）',
     group: 'transnet',
     modeScope: 'precision',
+    boolScope: 'useTransnet',
     min: 50,
     max: 400,
     step: 5,
+  },
+  {
+    key: 'scenedetectTimeoutSec',
+    label: '检测超时(秒)',
+    description: 'PySceneDetect 命令最长执行时长。超时后会自动回退默认检测并最终降级为整片单场景。',
+    lowEffect: '更快触发超时回退，防止任务长时间卡住。',
+    highEffect: '允许更长检测时间，减少慢机器上的误超时。',
+    qualityTradeoff: '主要影响任务可用性，不改变算法本身质量。',
+    speedTradeoff: '高值会延后超时判定时机。',
+    recommendedRange: '300 - 900（默认 600）',
+    group: 'misc',
+    min: 30,
+    max: 3600,
+    step: 30,
   },
 ]
 
@@ -603,7 +670,7 @@ export function ProcessingConfigModal({
                           min={field.min}
                           max={field.max}
                           step={field.step ?? 1}
-                          disabled={field.boolScope !== undefined && !Boolean(draft.overrideConfig[field.boolScope])}
+                          disabled={field.boolScope !== undefined && !draft.overrideConfig[field.boolScope]}
                           onChange={(event) => updateNumericField(field.key, event.currentTarget.value)}
                           className="sc-input w-full px-2 py-1 text-sm disabled:bg-[var(--sc-bg-contrast)]"
                         />

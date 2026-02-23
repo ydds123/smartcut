@@ -53,9 +53,10 @@ export interface ProcessingConfig {
   transnetOnlyMinGapFrames: number
   useThresholdDetector: boolean
   thresholdDetectorThreshold: number
-  thresholdDetectorFadebias: number
+  thresholdDetectorFadeBias: number
   mergeGapFrames: number
   splitCopyMode: boolean
+  scenedetectTimeoutSec: number
 }
 
 export interface ProcessTaskOptions {

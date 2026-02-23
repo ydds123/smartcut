@@ -38,11 +38,13 @@ DEFAULT_QUALITY_CONFIG: dict[str, Any] = {
     # ThresholdDetector（软切/淡入淡出检测）
     "use_threshold_detector": False,          # 是否叠加 detect-threshold（默认关闭）
     "threshold_detector_threshold": 12.0,    # 淡出亮度阈值（0-255）
-    "threshold_detector_fade_bias": 0.0,     # 切割位置偏移（-1 到 +1）
+    "threshold_detector_fade_bias": 0.0,     # 切割位置偏移百分比（-100 到 +100）
     # 后处理二次合并
     "merge_gap_frames": 0,                   # 合并间隔阈值（帧），0 = 不启用
     # 切分模式
     "split_copy_mode": False,                # True = FFmpeg copy 模式（快速，可能有帧偏移）
+    # PySceneDetect 命令超时
+    "scenedetect_timeout_sec": 600,          # scenedetect 最大执行时长（秒）
 }
 
 
@@ -198,6 +200,20 @@ def _normalize_quality_config(config: dict[str, Any]) -> dict[str, Any]:
     )
     normalized["transnet_only_min_gap_frames"] = int(
         _clamp(float(normalized.get("transnet_only_min_gap_frames", 12)), 1, 300)
+    )
+    normalized["use_threshold_detector"] = bool(normalized.get("use_threshold_detector", False))
+    normalized["threshold_detector_threshold"] = round(
+        _clamp(float(normalized.get("threshold_detector_threshold", 12.0)), 0.0, 255.0), 2
+    )
+    normalized["threshold_detector_fade_bias"] = round(
+        _clamp(float(normalized.get("threshold_detector_fade_bias", 0.0)), -100.0, 100.0), 2
+    )
+    normalized["merge_gap_frames"] = int(
+        _clamp(float(normalized.get("merge_gap_frames", 0)), 0.0, 600.0)
+    )
+    normalized["split_copy_mode"] = bool(normalized.get("split_copy_mode", False))
+    normalized["scenedetect_timeout_sec"] = int(
+        _clamp(float(normalized.get("scenedetect_timeout_sec", 600)), 30.0, 3600.0)
     )
     return normalized
 

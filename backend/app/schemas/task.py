@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, model_validator
 
 
 class TaskCreate(BaseModel):
@@ -36,12 +36,28 @@ class ProcessConfigOverride(BaseModel):
     threshold_detector_fade_bias: Optional[float] = None
     merge_gap_frames: Optional[int] = None
     split_copy_mode: Optional[bool] = None
+    scenedetect_timeout_sec: Optional[int] = None
 
 
 class ProcessTaskRequest(BaseModel):
     mode: Literal["manual"] = "manual"
     profile: Literal["quality"] = "quality"
     override_config: Optional[ProcessConfigOverride] = None
+
+
+class ReviewScenePayload(BaseModel):
+    start_ms: int = Field(ge=0)
+    end_ms: int = Field(gt=0)
+
+    @model_validator(mode="after")
+    def validate_range(self):
+        if self.end_ms <= self.start_ms:
+            raise ValueError("end_ms must be greater than start_ms")
+        return self
+
+
+class SaveReviewDataRequest(BaseModel):
+    scenes: list[ReviewScenePayload]
 
 
 class TaskResponse(BaseModel):

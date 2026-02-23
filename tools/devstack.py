@@ -647,6 +647,9 @@ def command_doctor() -> int:
     npm_path = "npm.cmd" if is_windows() else "npm"
     npm_ok = shutil_which(npm_path) is not None
     checks.append(("npm", npm_ok, npm_path))
+    for binary in ("ffmpeg", "ffprobe", "scenedetect"):
+        binary_path = shutil_which(binary)
+        checks.append((binary, binary_path is not None, binary_path or "not found"))
 
     redis_v4_ok, redis_v4_detail = tcp_probe("127.0.0.1", 6379, timeout=0.6)
     redis_local_ok, redis_local_detail = tcp_probe("localhost", 6379, timeout=0.6)
@@ -676,14 +679,23 @@ def command_doctor() -> int:
     checks.append(("backend-health", http_ok("http://127.0.0.1:8000/health"), "/health"))
     checks.append(("frontend-home", http_ok("http://127.0.0.1:5173/"), "/"))
     checks.append(("frontend-proxy", http_ok("http://127.0.0.1:5173/api/tasks"), "/api/tasks"))
+    precision_optional = [
+        ("python:torch", python_module_available(python_exec, "torch"), "optional for precision mode"),
+        ("python:cv2", python_module_available(python_exec, "cv2"), "optional for precision mode"),
+    ]
 
-    width = max(len(name) for name, _, _ in checks) + 2
+    width = max(len(name) for name, _, _ in [*checks, *precision_optional]) + 2
     failures = 0
     for name, ok, info in checks:
         state = "OK " if ok else "FAIL"
         print(f"{name:<{width}} {state}  {info}")
         if not ok:
             failures += 1
+
+    print("\noptional checks (precision mode):")
+    for name, ok, info in precision_optional:
+        state = "OK  " if ok else "MISS"
+        print(f"{name:<{width}} {state}  {info}")
 
     return 0 if failures == 0 else 1
 
@@ -692,6 +704,19 @@ def shutil_which(cmd: str) -> Optional[str]:
     from shutil import which
 
     return which(cmd)
+
+
+def python_module_available(python_exec: str, module_name: str, timeout: float = 3.0) -> bool:
+    try:
+        result = subprocess.run(
+            [python_exec, "-c", f"import {module_name}"],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return result.returncode == 0
 
 
 def command_restart(service: Optional[str]) -> int:
