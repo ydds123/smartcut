@@ -539,7 +539,7 @@ export function ProcessingConfigModal({
                 onChange={() => updateDetector('content')}
               />
               Content（稳定叙事）
-              <Tooltip width="w-72" placement="bottom" content={
+              <Tooltip width="w-72" placement="bottom" align="right" content={
                 <div>
                   <div className="mb-1 font-semibold text-[var(--sc-text-primary)]">Content 检测器</div>
                   <div>逐帧比较色彩（色相、饱和度、亮度、边缘）的变化量，超过阈值就判定为切点。</div>
@@ -556,7 +556,7 @@ export function ProcessingConfigModal({
                 onChange={() => updateDetector('adaptive')}
               />
               Adaptive（运动/闪变场景）
-              <Tooltip width="w-72" placement="bottom" content={
+              <Tooltip width="w-72" placement="bottom" align="right" content={
                 <div>
                   <div className="mb-1 font-semibold text-[var(--sc-text-primary)]">Adaptive 检测器</div>
                   <div>在 Content 基础上加了滚动平均：先算每帧的变化量，再与前后几帧的均值比较，过滤掉摄像机抖动和闪烁造成的误切。</div>
@@ -606,7 +606,7 @@ export function ProcessingConfigModal({
                 onChange={(event) => updateBoolField('useThresholdDetector', event.currentTarget.checked)}
               />
               启用淡入淡出检测
-              <Tooltip width="w-72" content={
+              <Tooltip width="w-72" align="right" content={
                 <div>
                   <div className="mb-1 font-semibold text-[var(--sc-text-primary)]">Threshold 检测器（叠加）</div>
                   <div>专门检测画面渐黑/渐白的淡入淡出过渡，不检测快切。会与主检测器同时运行，补充主检测器漏掉的淡变切点。</div>
@@ -627,7 +627,7 @@ export function ProcessingConfigModal({
                 onChange={(event) => updateBoolField('splitCopyMode', event.currentTarget.checked)}
               />
               使用 Copy 模式（不重编码，速度更快）
-              <Tooltip placement="bottom" width="w-80" content={
+              <Tooltip placement="bottom" width="w-80" align="right" content={
                 <div>
                   <div className="mb-1 font-semibold text-[var(--sc-text-primary)]">Copy 模式</div>
                   <div>直接复制视频流，不重新编码，速度快约 10 倍，画质完全无损。</div>

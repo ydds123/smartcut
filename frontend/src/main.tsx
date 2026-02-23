@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools'
 import './index.css'
 import App from './App'
+import { AppErrorBoundary } from './components/error/AppErrorBoundary'
 // ❌ 禁用 Mock API - Sprint 1.2 已完成，前端应调用真实后端 API
 // if (import.meta.env.DEV) {
 //   import('./mocks/browser')
@@ -23,7 +24,9 @@ const queryClient = new QueryClient({
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
-      <App />
+      <AppErrorBoundary>
+        <App />
+      </AppErrorBoundary>
       <ReactQueryDevtools initialIsOpen={false} />
     </QueryClientProvider>
   </StrictMode>,

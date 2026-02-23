@@ -1,5 +1,13 @@
 import { create } from 'zustand'
 
+function createToastId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  const perfPart = typeof performance !== 'undefined' ? Math.floor(performance.now() * 1000) : 0
+  return `toast-${Date.now()}-${perfPart}`
+}
+
 /**
  * Toast 消息类型
  */
@@ -94,7 +102,7 @@ export const useUIStore = create<UIState>((set, get) => ({
     }),
 
   addToast: (toast) => {
-    const id = Math.random().toString(36).substring(7)
+    const id = createToastId()
     const newToast: Toast = {
       id,
       type: toast.type || 'info',

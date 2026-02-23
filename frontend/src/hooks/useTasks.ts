@@ -2,6 +2,14 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { taskService } from '@/services/taskService'
 import type { ProcessTaskOptions, ReviewScene, Task } from '@/types/task'
 
+const ACTIVE_TASK_STATUSES = new Set([
+  'QUEUED',
+  'PROCESSING',
+  'DETECTING',
+  'SPLITTING',
+  'REVIEW_APPROVED',
+])
+
 /**
  * 获取任务列表 Hook
  *
@@ -14,7 +22,15 @@ export function useTasks() {
   return useQuery<Task[]>({
     queryKey: ['tasks'],
     queryFn: taskService.getAll,
-    refetchInterval: 5000, // 每 5 秒自动轮询
+    // 仅在存在活跃任务时轮询，避免空转请求。
+    refetchInterval: (query) => {
+      const tasks = (query.state.data as Task[] | undefined) ?? []
+      if (!tasks.length) {
+        return false
+      }
+      const hasActiveTask = tasks.some((task) => ACTIVE_TASK_STATUSES.has(task.status))
+      return hasActiveTask ? 5000 : false
+    },
     staleTime: 5000, // 5 秒内数据视为新鲜
   })
 }

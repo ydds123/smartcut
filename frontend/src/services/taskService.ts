@@ -1,6 +1,9 @@
 import apiClient from './api'
 import type { DetectionResult, ProcessTaskOptions, ReviewScene, Task, TaskDetail } from '@/types/task'
 
+const SSE_BASE_URL = (import.meta.env.VITE_SSE_URL || import.meta.env.VITE_API_URL || '').trim()
+const API_TOKEN = (import.meta.env.VITE_API_TOKEN || '').trim()
+
 /**
  * 字段名转换：snake_case -> camelCase
  */
@@ -94,7 +97,10 @@ export const taskService = {
   },
 
   listenProgress: (id: string, onProgress: TaskProgressCallback): EventSource => {
-    const eventSource = new EventSource(`/api/tasks/${id}/progress`)
+    const query = API_TOKEN ? `?api_token=${encodeURIComponent(API_TOKEN)}` : ''
+    const relativePath = `/api/tasks/${id}/progress${query}`
+    const base = SSE_BASE_URL.replace(/\/$/, '')
+    const eventSource = new EventSource(base ? `${base}${relativePath}` : relativePath)
 
     eventSource.onmessage = (event) => {
       try {

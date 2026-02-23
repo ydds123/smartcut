@@ -1,6 +1,8 @@
 import axios, { AxiosInstance, AxiosError } from 'axios'
 import type { ApiError } from '@/types/task'
 
+const API_TOKEN = (import.meta.env.VITE_API_TOKEN || '').trim()
+
 // 创建 Axios 实例
 const apiClient: AxiosInstance = axios.create({
   baseURL: import.meta.env.VITE_API_URL || '',
@@ -13,7 +15,16 @@ const apiClient: AxiosInstance = axios.create({
 // 请求拦截器
 apiClient.interceptors.request.use(
   (config) => {
-    // 可以在这里添加 token 等认证信息
+    if (API_TOKEN) {
+      if (config.headers && typeof (config.headers as any).set === 'function') {
+        ;(config.headers as any).set('X-API-Token', API_TOKEN)
+      } else {
+        config.headers = {
+          ...(config.headers as Record<string, string> | undefined),
+          'X-API-Token': API_TOKEN,
+        } as any
+      }
+    }
     return config
   },
   (error) => {
