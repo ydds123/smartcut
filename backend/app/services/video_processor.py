@@ -187,6 +187,7 @@ class VideoProcessor:
         self,
         scenes: List[Tuple[int, int]],
         progress_callback=None,
+        output_indices: Optional[List[int]] = None,
     ) -> dict:
         """
         根据给定场景列表切分视频并生成缩略图。用于预览确认后的切分流程。
@@ -194,8 +195,17 @@ class VideoProcessor:
         Returns:
             dict: {output_files, thumbnails}
         """
-        output_files = self.split_video(scenes, progress_callback=progress_callback)
-        thumbnails = self.generate_thumbnails_batch(output_files, scenes, progress_callback=progress_callback)
+        output_files = self.split_video(
+            scenes,
+            progress_callback=progress_callback,
+            output_indices=output_indices,
+        )
+        thumbnails = self.generate_thumbnails_batch(
+            output_files,
+            scenes,
+            progress_callback=progress_callback,
+            output_indices=output_indices,
+        )
         return {"output_files": output_files, "thumbnails": thumbnails}
 
     def detect_scenes(self) -> List[Tuple[int, int]]:
@@ -217,6 +227,15 @@ class VideoProcessor:
         pyscene_scenes = self._detect_with_pyscene()
         pyscene_boundaries = self._scenes_to_cut_frames(pyscene_scenes)
 
+        # 读取 stats 帧级分数摘要（用于检测置信度报告）
+        detector_type = self.processing_config.get("detector", "content")
+        stats_threshold = (
+            float(self.processing_config.get("adaptive_threshold", 3.0))
+            if detector_type == "adaptive"
+            else float(self.processing_config.get("scene_threshold", 27.0))
+        )
+        stats_summary = self._read_stats_summary(stats_threshold)
+
         report: dict[str, Any] = {
             "fusion_mode": "pyscene_only",
             "detection_mode": detection_mode,
@@ -232,6 +251,7 @@ class VideoProcessor:
             "post_min_duration_merged_count": 0,
             "transnet_elapsed_sec": 0.0,
             "fusion_elapsed_sec": 0.0,
+            **stats_summary,
         }
 
         # Stage 2: TransNetV2 验证（仅 precision 模式且启用时）
@@ -244,10 +264,26 @@ class VideoProcessor:
 
         fps = self._get_video_fps()
         min_scene_len_frames = int(self.processing_config.get("min_scene_len_frames", 15))
-        min_scene_duration_ms = self._resolve_min_scene_duration_ms(fps, min_scene_len_frames)
+        min_scene_duration_ms_floor = int(self.processing_config.get("min_scene_duration_ms_floor", 1000))
+        min_scene_duration_ms = self._resolve_min_scene_duration_ms(
+            fps,
+            min_scene_len_frames,
+            min_scene_duration_ms_floor,
+        )
         normalized_scenes = self._merge_short_scenes_by_duration(final_scenes, min_scene_duration_ms)
         report["post_min_duration_merged_count"] = max(0, len(final_scenes) - len(normalized_scenes))
         final_scenes = normalized_scenes
+
+        # 二次合并：基于帧间隔（merge_gap_frames > 0 时启用）
+        merge_gap_frames = int(self.processing_config.get("merge_gap_frames", 0))
+        if merge_gap_frames > 0 and fps > 0:
+            merge_gap_ms = int(round(merge_gap_frames / fps * 1000))
+            gap_merged = self._merge_scenes_by_gap(final_scenes, merge_gap_ms)
+            report["post_gap_merged_count"] = max(0, len(final_scenes) - len(gap_merged))
+            final_scenes = gap_merged
+        else:
+            report["post_gap_merged_count"] = 0
+
         report["final_scene_count"] = len(final_scenes)
         report["fusion_elapsed_sec"] = round(time.perf_counter() - start_time, 3)
         self.last_detection_report = report
@@ -271,11 +307,14 @@ class VideoProcessor:
         weight_lum = float(self.processing_config.get("weight_lum", 1.0))
         weight_edges = float(self.processing_config.get("weight_edges", 0.0))
 
-        cmd = ["scenedetect", "-i", self.video_path]
+        stats_file = self.task_dir / "scenes.stats.csv"
+        cmd = ["scenedetect", "-i", self.video_path, "--stats", str(stats_file)]
         if downscale > 1:
             cmd.extend(["--downscale", str(downscale)])
         if frame_skip > 0:
             cmd.extend(["--frame-skip", str(frame_skip)])
+        if stats_file.exists():
+            logger.info(f"Task {self.task_id}: stats 文件已存在，PySceneDetect 将复用帧缓存")
 
         if detector == "adaptive":
             adaptive_threshold = float(self.processing_config.get("adaptive_threshold", 3.0))
@@ -309,6 +348,16 @@ class VideoProcessor:
                     str(weight_edges),
                 ]
             )
+
+        use_threshold_detector = bool(self.processing_config.get("use_threshold_detector", False))
+        if use_threshold_detector:
+            threshold_detector_threshold = float(self.processing_config.get("threshold_detector_threshold", 12.0))
+            threshold_detector_fade_bias = float(self.processing_config.get("threshold_detector_fade_bias", 0.0))
+            cmd.extend([
+                "detect-threshold",
+                "--threshold", str(threshold_detector_threshold),
+                "--fade-bias", str(threshold_detector_fade_bias),
+            ])
 
         cmd.extend(["list-scenes", "-f", str(self.task_dir / "scenes.csv")])
 
@@ -351,30 +400,87 @@ class VideoProcessor:
 
         if not csv_path.exists():
             logger.warning(f"Task {self.task_id}: 场景列表文件不存在")
-            # 返回整个视频作为单一场景
             return [(0, self._get_video_duration_ms())]
 
         with open(csv_path, 'r') as f:
             lines = f.readlines()
 
-            # PySceneDetect CSV 格式:
-            # 第1行: Timecode List: ...
-            # 第2行: Scene Number,Start Frame,Start Timecode,...
-            # 从第3行开始是数据
-            for line in lines[2:]:  # 跳过前两行头部
-                if line.strip():
-                    parts = line.split(',')
-                    if len(parts) >= 7:
-                        # Start Timecode 在索引 2, End Timecode 在索引 5
-                        start_ms = self._timecode_to_ms(parts[2])
-                        end_ms = self._timecode_to_ms(parts[5])
-                        scenes.append((start_ms, end_ms))
+        # PySceneDetect CSV 格式:
+        # 第1行: Timecode List: ...
+        # 第2行: Scene Number,Start Frame,Start Timecode,...
+        # 从第3行开始是数据
+        if len(lines) < 3:
+            logger.warning(f"Task {self.task_id}: 场景列表文件格式异常（行数不足）")
+            return [(0, self._get_video_duration_ms())]
+
+        header_parts = [col.strip() for col in lines[1].split(',')]
+        try:
+            start_col = header_parts.index("Start Timecode")
+            end_col = header_parts.index("End Timecode")
+        except ValueError:
+            logger.warning(f"Task {self.task_id}: CSV 列名未找到，回退硬编码索引")
+            start_col = 2
+            end_col = 5
+
+        for line in lines[2:]:
+            if line.strip():
+                parts = line.split(',')
+                if len(parts) > max(start_col, end_col):
+                    start_ms = self._timecode_to_ms(parts[start_col].strip())
+                    end_ms = self._timecode_to_ms(parts[end_col].strip())
+                    scenes.append((start_ms, end_ms))
 
         if not scenes:
             logger.warning(f"Task {self.task_id}: 未检测到场景")
             return [(0, self._get_video_duration_ms())]
 
         return scenes
+
+    def _read_stats_summary(self, threshold: float) -> dict[str, Any]:
+        """读取 PySceneDetect stats CSV，返回帧级分数摘要（用于检测置信度报告）。"""
+        stats_path = self.task_dir / "scenes.stats.csv"
+        if not stats_path.exists():
+            return {}
+
+        try:
+            with open(stats_path, 'r') as f:
+                lines = f.readlines()
+
+            if len(lines) < 2:
+                return {}
+
+            header = [col.strip() for col in lines[0].split(',')]
+            score_col: Optional[int] = None
+            for candidate in ("content_val", "delta_lum", "delta_hue", "delta_sat"):
+                if candidate in header:
+                    score_col = header.index(candidate)
+                    break
+
+            if score_col is None:
+                return {}
+
+            scores: list[float] = []
+            for line in lines[1:]:
+                parts = line.split(',')
+                if len(parts) > score_col:
+                    try:
+                        scores.append(float(parts[score_col].strip()))
+                    except ValueError:
+                        pass
+
+            if not scores:
+                return {}
+
+            near_miss_count = sum(1 for s in scores if threshold * 0.8 <= s < threshold)
+            return {
+                "stats_score_max": round(max(scores), 3),
+                "stats_score_mean": round(sum(scores) / len(scores), 3),
+                "stats_near_miss_count": near_miss_count,
+                "stats_frame_count": len(scores),
+            }
+        except Exception as exc:
+            logger.debug(f"Task {self.task_id}: stats 摘要读取失败 - {exc}")
+            return {}
 
     def _get_transnet_detector(self):
         """延迟初始化 TransNetV2 检测器"""
@@ -474,15 +580,20 @@ class VideoProcessor:
                 self.processing_config.get("transnet_additional_boundary_threshold", 0.55)
             )
             min_gap_frames = int(self.processing_config.get("transnet_only_min_gap_frames", 12))
+            soft_candidate_multiplier = float(
+                self.processing_config.get("transnet_soft_candidate_multiplier", 0.75)
+            )
+            soft_candidate_multiplier = max(0.5, min(1.0, soft_candidate_multiplier))
             soft_candidate_threshold = max(
                 0.12,
                 min(
                     additional_threshold - 0.05,
-                    float(self.processing_config.get("transnet_threshold", 0.3)) * 0.75,
+                    float(self.processing_config.get("transnet_threshold", 0.3)) * soft_candidate_multiplier,
                 ),
             )
             soft_candidate_threshold = round(soft_candidate_threshold, 3)
             candidate_scores = detector.score_candidates(self.video_path, candidate_frames)
+            report["soft_candidate_multiplier"] = round(soft_candidate_multiplier, 2)
             report["soft_candidate_threshold"] = soft_candidate_threshold
 
             retained_frames: list[int] = []
@@ -641,14 +752,19 @@ class VideoProcessor:
         return [segment for segment in scenes if segment[1] > segment[0]]
 
     @staticmethod
-    def _resolve_min_scene_duration_ms(fps: float, min_scene_len_frames: int) -> int:
+    def _resolve_min_scene_duration_ms(
+        fps: float,
+        min_scene_len_frames: int,
+        min_scene_duration_ms_floor: int = 1000,
+    ) -> int:
         """
         Resolve hard minimum scene duration.
-        Default lower bound is 1000 ms to avoid zero/flash segments.
+        Lower bound can be configured per task to balance fast cuts vs. stability.
         """
         fps_safe = fps if fps > 0 else 25.0
         by_frames_ms = int(round((max(1, min_scene_len_frames) / fps_safe) * 1000))
-        return max(1000, by_frames_ms)
+        floor_ms = max(0, int(min_scene_duration_ms_floor))
+        return max(floor_ms, by_frames_ms)
 
     @staticmethod
     def _merge_short_scenes_by_duration(
@@ -697,6 +813,30 @@ class VideoProcessor:
         return [segment for segment in merged if segment[1] > segment[0]]
 
     @staticmethod
+    def _merge_scenes_by_gap(
+        scenes: list[tuple[int, int]],
+        merge_gap_ms: int,
+    ) -> list[tuple[int, int]]:
+        """合并边界间隔小于 merge_gap_ms 的相邻镜头（二次合并，解决碎镜头）"""
+        if len(scenes) <= 1 or merge_gap_ms <= 0:
+            return scenes
+
+        merged = list(scenes)
+        changed = True
+        while changed and len(merged) > 1:
+            changed = False
+            for idx in range(len(merged) - 1):
+                _, end_ms = merged[idx]
+                next_start, next_end = merged[idx + 1]
+                if (next_start - end_ms) < merge_gap_ms:
+                    merged[idx] = (merged[idx][0], next_end)
+                    del merged[idx + 1]
+                    changed = True
+                    break
+
+        return merged
+
+    @staticmethod
     def _enforce_min_shot_gap(
         cut_frames: list[int],
         boundary_scores: dict[int, float],
@@ -743,7 +883,12 @@ class VideoProcessor:
 
         return boundaries
 
-    def split_video(self, scenes: List[Tuple[int, int]], progress_callback=None) -> List[str]:
+    def split_video(
+        self,
+        scenes: List[Tuple[int, int]],
+        progress_callback=None,
+        output_indices: Optional[List[int]] = None,
+    ) -> List[str]:
         """
         使用 FFmpeg 进度监控的视频切分
 
@@ -758,12 +903,21 @@ class VideoProcessor:
 
         output_files = []
         total_scenes = len(scenes)
+        if output_indices is not None and len(output_indices) != total_scenes:
+            raise ValueError(
+                f"output_indices length mismatch: expected={total_scenes}, actual={len(output_indices)}"
+            )
+
+        use_copy = bool(self.processing_config.get("split_copy_mode", False))
+        if use_copy:
+            logger.info(f"Task {self.task_id}: split_copy_mode=True，使用 copy 模式切分")
 
         # 获取视频总时长
         total_duration = self._get_video_duration_ms() / 1000
 
         for i, (start_ms, end_ms) in enumerate(scenes):
-            output_file = self.scenes_dir / f"scene_{i:03d}.mp4"
+            target_index = output_indices[i] if output_indices is not None else i
+            output_file = self.scenes_dir / f"scene_{target_index:03d}.mp4"
 
             # 创建进度监控器
             def on_scene_progress(progress_info):
@@ -787,18 +941,31 @@ class VideoProcessor:
             start_time = self._ms_to_timecode(start_ms)
             duration_sec = (end_ms - start_ms) / 1000.0
 
-            cmd = [
-                "ffmpeg",
-                "-i", self.video_path,
-                "-ss", start_time,
-                "-t", str(duration_sec),
-                "-progress", "pipe:2",  # 输出进度到 stderr
-                "-v", "quiet",  # 减少日志输出
-                "-c:v", "libx264",
-                "-c:a", "aac",
-                "-y",  # 覆盖输出文件
-                str(output_file)
-            ]
+            if use_copy:
+                cmd = [
+                    "ffmpeg",
+                    "-ss", start_time,
+                    "-i", self.video_path,
+                    "-t", str(duration_sec),
+                    "-c", "copy",
+                    "-progress", "pipe:2",
+                    "-v", "quiet",
+                    "-y",
+                    str(output_file)
+                ]
+            else:
+                cmd = [
+                    "ffmpeg",
+                    "-i", self.video_path,
+                    "-ss", start_time,
+                    "-t", str(duration_sec),
+                    "-progress", "pipe:2",  # 输出进度到 stderr
+                    "-v", "quiet",  # 减少日志输出
+                    "-c:v", "libx264",
+                    "-c:a", "aac",
+                    "-y",  # 覆盖输出文件
+                    str(output_file)
+                ]
 
             try:
                 # 启动 FFmpeg 并监控进度
@@ -842,6 +1009,32 @@ class VideoProcessor:
                     logger.error(f"Task {self.task_id}: 场景 {i} 切分失败，输出文件为空或不存在")
                     continue
 
+                # copy 模式异常输出检测（文件过小视为失败，回退重编码）
+                if use_copy and output_file.stat().st_size < 10240:
+                    logger.warning(f"Task {self.task_id}: 场景 {i} copy 输出异常（{output_file.stat().st_size}B），回退重编码")
+                    fallback_cmd = [
+                        "ffmpeg",
+                        "-i", self.video_path,
+                        "-ss", start_time,
+                        "-t", str(duration_sec),
+                        "-progress", "pipe:2",
+                        "-v", "quiet",
+                        "-c:v", "libx264",
+                        "-c:a", "aac",
+                        "-y",
+                        str(output_file)
+                    ]
+                    fallback_proc = subprocess.Popen(
+                        fallback_cmd,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        universal_newlines=True,
+                    )
+                    fallback_proc.wait()
+                    if not output_file.exists() or output_file.stat().st_size <= 0:
+                        logger.error(f"Task {self.task_id}: 场景 {i} 回退重编码也失败")
+                        continue
+
                 output_files.append(str(output_file))
                 logger.info(f"Task {self.task_id}: 场景 {i} 切分完成")
 
@@ -862,7 +1055,8 @@ class VideoProcessor:
         self,
         output_files: List[str],
         scenes: List[Tuple[int, int]],
-        progress_callback=None
+        progress_callback=None,
+        output_indices: Optional[List[int]] = None,
     ) -> List[Optional[str]]:
         """
         批量生成缩略图，提供平滑进度更新
@@ -879,9 +1073,14 @@ class VideoProcessor:
         total = len(output_files)
         if total == 0:
             return thumbnails
+        if output_indices is not None and len(output_indices) != total:
+            raise ValueError(
+                f"output_indices length mismatch: expected={total}, actual={len(output_indices)}"
+            )
 
         for i, video_file in enumerate(output_files):
-            thumb_file = self.scenes_dir / f"scene_{i:03d}_thumb.jpg"
+            target_index = output_indices[i] if output_indices is not None else i
+            thumb_file = self.scenes_dir / f"scene_{target_index:03d}_thumb.jpg"
 
             # 计算当前进度（50% -> 90%）
             progress = 50 + ((i + 1) * 40 / total)

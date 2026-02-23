@@ -10,3 +10,4 @@ backend/data/tasks/
 *.log
 .DS_Store
 .run-logs/
+test-results/

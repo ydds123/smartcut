@@ -15,6 +15,7 @@ DEFAULT_QUALITY_CONFIG: dict[str, Any] = {
     "detector": "content",
     "scene_threshold": 27.0,
     "min_scene_len_frames": 15,
+    "min_scene_duration_ms_floor": 1000,
     "downscale": 1,
     "frame_skip": 0,
     "adaptive_threshold": 3.0,
@@ -29,11 +30,19 @@ DEFAULT_QUALITY_CONFIG: dict[str, Any] = {
     "detection_mode": "fast",
     "use_transnet": False,
     "transnet_threshold": 0.3,                # 概率阈值（0-1）
+    "transnet_soft_candidate_multiplier": 0.75,  # 候选软保留倍率（0.5-1.0）
     "transnet_tolerance_frames": 12,          # 边界匹配容差（帧数）
     "transnet_window_size": 100,              # 分析窗口大小（帧数）
-    "transnet_timeout_sec": 30,               # 模型加载超时
     "transnet_additional_boundary_threshold": 0.55,  # 补边阈值（0-1）
     "transnet_only_min_gap_frames": 12,       # 补边最小间隔（帧）
+    # ThresholdDetector（软切/淡入淡出检测）
+    "use_threshold_detector": False,          # 是否叠加 detect-threshold（默认关闭）
+    "threshold_detector_threshold": 12.0,    # 淡出亮度阈值（0-255）
+    "threshold_detector_fade_bias": 0.0,     # 切割位置偏移（-1 到 +1）
+    # 后处理二次合并
+    "merge_gap_frames": 0,                   # 合并间隔阈值（帧），0 = 不启用
+    # 切分模式
+    "split_copy_mode": False,                # True = FFmpeg copy 模式（快速，可能有帧偏移）
 }
 
 
@@ -155,6 +164,9 @@ def _normalize_quality_config(config: dict[str, Any]) -> dict[str, Any]:
     normalized["min_scene_len_frames"] = int(
         _clamp(float(normalized.get("min_scene_len_frames", 15)), 4.0, 300.0)
     )
+    normalized["min_scene_duration_ms_floor"] = int(
+        _clamp(float(normalized.get("min_scene_duration_ms_floor", 1000)), 200.0, 3000.0)
+    )
     normalized["downscale"] = int(_clamp(float(normalized.get("downscale", 1)), 1.0, 8.0))
     normalized["frame_skip"] = int(_clamp(float(normalized.get("frame_skip", 0)), 0.0, 10.0))
     normalized["thumbnail_retry"] = int(_clamp(float(normalized.get("thumbnail_retry", 1)), 0.0, 3.0))
@@ -172,14 +184,14 @@ def _normalize_quality_config(config: dict[str, Any]) -> dict[str, Any]:
     else:
         normalized["use_transnet"] = bool(use_transnet)
     normalized["transnet_threshold"] = round(_clamp(float(normalized.get("transnet_threshold", 0.3)), 0.0, 1.0), 2)
+    normalized["transnet_soft_candidate_multiplier"] = round(
+        _clamp(float(normalized.get("transnet_soft_candidate_multiplier", 0.75)), 0.5, 1.0), 2
+    )
     normalized["transnet_tolerance_frames"] = int(
         _clamp(float(normalized.get("transnet_tolerance_frames", 12)), 1, 100)
     )
     normalized["transnet_window_size"] = int(
         _clamp(float(normalized.get("transnet_window_size", 100)), 50, 400)
-    )
-    normalized["transnet_timeout_sec"] = int(
-        _clamp(float(normalized.get("transnet_timeout_sec", 30)), 5, 300)
     )
     normalized["transnet_additional_boundary_threshold"] = round(
         _clamp(float(normalized.get("transnet_additional_boundary_threshold", 0.55)), 0.0, 1.0), 2
@@ -203,6 +215,11 @@ def resolve_quality_config(
     reasons: list[str] = ["manual mode selected"]
     if mode != "manual":
         raise ValueError("only manual mode is supported")
+
+    # P2: 高运动视频自动切换 adaptive 检测器（仅在用户未显式指定 detector 时生效）
+    if features.get("high_motion_proxy") and not (override_config and "detector" in override_config):
+        base["detector"] = "adaptive"
+        reasons.append("high_motion_proxy: auto-switched to adaptive detector")
 
     override_payload = _sanitize_override(override_config)
     if override_payload:

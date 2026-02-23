@@ -1,5 +1,15 @@
 export const backendBase = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000'
 
+function normalizeToDataPath(pathValue: string): string {
+  const normalized = pathValue.replace(/\\/g, '/')
+  const dataMarker = '/data/'
+  const markerIndex = normalized.indexOf(dataMarker)
+  if (markerIndex >= 0) {
+    return normalized.slice(markerIndex)
+  }
+  return normalized
+}
+
 export function formatMs(ms: number): string {
   const totalSec = Math.floor(ms / 1000)
   const h = Math.floor(totalSec / 3600)
@@ -30,7 +40,7 @@ export function resolveAssetUrl(pathValue: string | null): string | null {
     return null
   }
 
-  const normalized = pathValue.trim()
+  const normalized = normalizeToDataPath(pathValue.trim())
   if (!normalized) {
     return null
   }

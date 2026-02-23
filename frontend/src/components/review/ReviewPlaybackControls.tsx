@@ -4,29 +4,35 @@ interface ReviewPlaybackControlsProps {
   playheadMs: number
   durationMs: number
   isPlaying: boolean
+  playbackRate: number
+  playbackRateOptions: number[]
   onSeek: (targetMs: number) => void
   onStepSecondBack: () => void
   onStepSecondForward: () => void
   onTogglePlay: () => void
+  onPlaybackRateChange: (rate: number) => void
 }
 
 export function ReviewPlaybackControls({
   playheadMs,
   durationMs,
   isPlaying,
+  playbackRate,
+  playbackRateOptions,
   onSeek,
   onStepSecondBack,
   onStepSecondForward,
   onTogglePlay,
+  onPlaybackRateChange,
 }: ReviewPlaybackControlsProps) {
   const maxDuration = Math.max(durationMs, 1)
 
   return (
-    <div className="flex items-center gap-2 border-b border-[#27272a] bg-[#0f0f0f] px-4">
+    <div className="flex items-center gap-2 border-b border-[var(--sc-border-subtle)] bg-[var(--sc-bg-surface)] px-4">
       <button
         type="button"
         onClick={onTogglePlay}
-        className="rounded border border-[#3f3f46] bg-[#18181b] px-2 py-1 text-xs text-[#d4d4d8] hover:bg-[#27272a]"
+        className="sc-btn sc-btn-secondary h-7 px-2"
       >
         {isPlaying ? '暂停' : '播放'}
       </button>
@@ -34,7 +40,7 @@ export function ReviewPlaybackControls({
       <button
         type="button"
         onClick={onStepSecondBack}
-        className="rounded border border-[#3f3f46] bg-[#18181b] px-2 py-1 text-xs text-[#a1a1aa] hover:bg-[#27272a]"
+        className="sc-btn sc-btn-secondary h-7 px-2 text-[var(--sc-text-secondary)]"
       >
         -1s
       </button>
@@ -42,10 +48,23 @@ export function ReviewPlaybackControls({
       <button
         type="button"
         onClick={onStepSecondForward}
-        className="rounded border border-[#3f3f46] bg-[#18181b] px-2 py-1 text-xs text-[#a1a1aa] hover:bg-[#27272a]"
+        className="sc-btn sc-btn-secondary h-7 px-2 text-[var(--sc-text-secondary)]"
       >
         +1s
       </button>
+
+      <select
+        value={playbackRate}
+        onChange={(event) => onPlaybackRateChange(Number(event.target.value))}
+        className="sc-input h-7 px-2 text-xs"
+        aria-label="预览播放速度"
+      >
+        {playbackRateOptions.map((rate) => (
+          <option key={rate} value={rate}>
+            {rate}x
+          </option>
+        ))}
+      </select>
 
       <input
         type="range"
@@ -53,10 +72,10 @@ export function ReviewPlaybackControls({
         max={maxDuration}
         value={clamp(playheadMs, 0, maxDuration)}
         onChange={(event) => onSeek(Number(event.target.value))}
-        className="ml-2 h-1.5 flex-1 accent-[#2563eb]"
+        className="sc-range ml-2 h-1.5 flex-1"
       />
 
-      <span className="w-28 text-right font-mono text-xs text-[#a1a1aa]">{formatMsFull(playheadMs)}</span>
+      <span className="w-28 text-right font-mono text-xs text-[var(--sc-text-muted)]">{formatMsFull(playheadMs)}</span>
     </div>
   )
 }

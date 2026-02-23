@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useUIStore } from '@/stores/uiStore'
 import { useApproveReview, useReviewData, useSaveReviewData, useTask } from '@/hooks/useTasks'
-import type { ReviewScene } from '@/types/task'
+import type { ReviewScene, SplitStats } from '@/types/task'
 import { ReviewPlaybackControls } from './ReviewPlaybackControls'
 import { ReviewShotSummaryPanel } from './ReviewShotSummaryPanel'
 import { ReviewTimelineWorkspace, type ReviewTimelineWorkspaceHandle } from './ReviewTimelineWorkspace'
@@ -13,10 +13,41 @@ const ZOOM_MIN_FACTOR_FROM_FIT = 0.25
 const ZOOM_MAX_FACTOR_FROM_FIT = 40
 const ZOOM_RANGE_EPSILON = 0.001
 const DEFAULT_TIMELINE_VIEWPORT_WIDTH = 1200
+const PLAYBACK_RATE_OPTIONS = [0.5, 0.75, 1, 1.25, 1.5, 2]
+
+function formatElapsedMs(elapsedMs?: number): string {
+  if (!Number.isFinite(elapsedMs) || elapsedMs === undefined || elapsedMs <= 0) {
+    return '--'
+  }
+  if (elapsedMs >= 1000) {
+    return `${(elapsedMs / 1000).toFixed(elapsedMs >= 10000 ? 0 : 1)}s`
+  }
+  return `${Math.round(elapsedMs)}ms`
+}
+
+function formatSplitStatsSummary(stats: SplitStats | null | undefined): string | null {
+  if (!stats) {
+    return null
+  }
+  const total = Math.max(0, stats.totalScenes ?? 0)
+  const reused = Math.max(0, stats.reusedCount ?? 0)
+  const rendered = Math.max(0, stats.renderedCount ?? 0)
+  const fallback = stats.fallbackFullResplit ? '是' : '否'
+  return `上次切分：复用 ${reused}/${total} · 重切 ${rendered} · 回退全量 ${fallback} · 耗时 ${formatElapsedMs(stats.totalElapsedMs)}`
+}
 
 interface ZoomBounds {
   minPps: number
   maxPps: number
+}
+
+function resolveFitPixelsPerSecond(durationMs: number, viewportWidth: number, bounds: ZoomBounds): number {
+  const safeDurationSec = Math.max(durationMs / 1000, 1)
+  const safeViewportWidth = Number.isFinite(viewportWidth) && viewportWidth > 0
+    ? viewportWidth
+    : DEFAULT_TIMELINE_VIEWPORT_WIDTH
+  const fitPps = safeViewportWidth / safeDurationSec
+  return clamp(fitPps, bounds.minPps, bounds.maxPps)
 }
 
 function resolveZoomBounds(durationMs: number, viewportWidth: number): ZoomBounds {
@@ -72,17 +103,25 @@ export function ReviewModal() {
   const [selectedSceneIndex, setSelectedSceneIndex] = useState<number | null>(null)
   const [playheadMs, setPlayheadMs] = useState(0)
   const [isPlaying, setIsPlaying] = useState(false)
+  const [playbackRate, setPlaybackRate] = useState(1)
   const [videoDurationMs, setVideoDurationMs] = useState(0)
   const [videoLoadFailed, setVideoLoadFailed] = useState(false)
   const [pixelsPerSecond, setPixelsPerSecond] = useState(50)
   const [timelineViewportWidth, setTimelineViewportWidth] = useState(DEFAULT_TIMELINE_VIEWPORT_WIDTH)
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const timelineRef = useRef<ReviewTimelineWorkspaceHandle | null>(null)
+  const initializedZoomTaskIdRef = useRef<string | null>(null)
+  const metadataAdjustedTaskIdRef = useRef<string | null>(null)
+  const userAdjustedZoomTaskIdRef = useRef<string | null>(null)
 
   const { data: taskDetail } = useTask(reviewTaskId ?? '')
   const { data, isLoading } = useReviewData(reviewTaskId ?? '', isReviewModalOpen && !!reviewTaskId)
   const saveReviewData = useSaveReviewData()
   const approveReview = useApproveReview()
+  const splitStatsSummary = useMemo(
+    () => formatSplitStatsSummary(taskDetail?.latestSplitStats),
+    [taskDetail?.latestSplitStats]
+  )
 
   const durationMs = data?.detectionResult?.durationMs ?? 0
   const isTimelineReady = data?.status === 'TIMELINE_READY'
@@ -106,6 +145,73 @@ export function ReviewModal() {
       return next
     })
   }, [zoomBounds])
+
+  useEffect(() => {
+    if (!isReviewModalOpen) {
+      initializedZoomTaskIdRef.current = null
+      metadataAdjustedTaskIdRef.current = null
+      userAdjustedZoomTaskIdRef.current = null
+      return
+    }
+
+    if (!reviewTaskId) {
+      return
+    }
+
+    if (initializedZoomTaskIdRef.current === reviewTaskId) {
+      return
+    }
+
+    const seedDurationMs = durationMs > 0 ? durationMs : videoDurationMs
+    if (seedDurationMs <= 0) {
+      return
+    }
+
+    const fitPps = resolveFitPixelsPerSecond(seedDurationMs, timelineViewportWidth, zoomBounds)
+    setPixelsPerSecond(Math.round(fitPps * 100) / 100)
+    initializedZoomTaskIdRef.current = reviewTaskId
+    metadataAdjustedTaskIdRef.current = videoDurationMs > 0 ? reviewTaskId : null
+    userAdjustedZoomTaskIdRef.current = null
+  }, [
+    durationMs,
+    isReviewModalOpen,
+    reviewTaskId,
+    timelineViewportWidth,
+    videoDurationMs,
+    zoomBounds,
+  ])
+
+  useEffect(() => {
+    if (!isReviewModalOpen || !reviewTaskId) {
+      return
+    }
+
+    if (videoDurationMs <= 0) {
+      return
+    }
+
+    if (initializedZoomTaskIdRef.current !== reviewTaskId) {
+      return
+    }
+
+    if (metadataAdjustedTaskIdRef.current === reviewTaskId) {
+      return
+    }
+
+    if (userAdjustedZoomTaskIdRef.current === reviewTaskId) {
+      metadataAdjustedTaskIdRef.current = reviewTaskId
+      return
+    }
+
+    const fitPps = resolveFitPixelsPerSecond(videoDurationMs, timelineViewportWidth, zoomBounds)
+    setPixelsPerSecond((current) => {
+      if (Math.abs(current - fitPps) <= ZOOM_RANGE_EPSILON) {
+        return current
+      }
+      return Math.round(fitPps * 100) / 100
+    })
+    metadataAdjustedTaskIdRef.current = reviewTaskId
+  }, [isReviewModalOpen, reviewTaskId, timelineViewportWidth, videoDurationMs, zoomBounds])
 
   useEffect(() => {
     if (!data) {
@@ -144,6 +250,13 @@ export function ReviewModal() {
   }, [isReviewModalOpen])
 
   useEffect(() => {
+    if (!isReviewModalOpen || !reviewTaskId) {
+      return
+    }
+    setPlaybackRate(1)
+  }, [isReviewModalOpen, reviewTaskId])
+
+  useEffect(() => {
     setVideoDurationMs(0)
     setVideoLoadFailed(false)
     const video = videoRef.current
@@ -164,6 +277,14 @@ export function ReviewModal() {
       video.currentTime = targetSec
     }
   }, [playheadMs, sourceVideoUrl])
+
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video) {
+      return
+    }
+    video.playbackRate = playbackRate
+  }, [playbackRate, sourceVideoUrl])
 
   useEffect(() => {
     if (scenes.length === 0) {
@@ -362,6 +483,7 @@ export function ReviewModal() {
     if (Math.abs(video.currentTime - targetSec) > 0.08) {
       video.currentTime = targetSec
     }
+    video.playbackRate = playbackRate
   }
 
   const handleVideoTimeUpdate = () => {
@@ -460,16 +582,56 @@ export function ReviewModal() {
   }, [])
 
   const handlePixelsPerSecondChange = useCallback((nextPixelsPerSecond: number) => {
+    if (reviewTaskId) {
+      userAdjustedZoomTaskIdRef.current = reviewTaskId
+    }
     const clamped = clamp(nextPixelsPerSecond, zoomBounds.minPps, zoomBounds.maxPps)
     setPixelsPerSecond(Math.round(clamped * 100) / 100)
-  }, [zoomBounds])
+  }, [reviewTaskId, zoomBounds])
 
   const handleZoomSliderChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    if (reviewTaskId) {
+      userAdjustedZoomTaskIdRef.current = reviewTaskId
+    }
     prepareZoomAnchor()
     const normalized = clamp(Number(event.target.value) / 100, 0, 1)
     const mapped = normalizedToPixelsPerSecond(normalized, zoomBounds)
     setPixelsPerSecond(Math.round(mapped * 100) / 100)
-  }, [prepareZoomAnchor, zoomBounds])
+  }, [prepareZoomAnchor, reviewTaskId, zoomBounds])
+
+  const handleZoomReset = useCallback(() => {
+    if (effectiveDurationMs <= 0) {
+      addToast({
+        type: 'warning',
+        message: '暂无可用时间轴数据，无法重置缩放',
+      })
+      return
+    }
+
+    if (reviewTaskId) {
+      userAdjustedZoomTaskIdRef.current = reviewTaskId
+    }
+
+    const fitPps = resolveFitPixelsPerSecond(effectiveDurationMs, timelineViewportWidth, zoomBounds)
+    if (Math.abs(pixelsPerSecond - fitPps) <= ZOOM_RANGE_EPSILON) {
+      addToast({
+        type: 'info',
+        message: '已是默认缩放',
+      })
+      return
+    }
+
+    prepareZoomAnchor()
+    setPixelsPerSecond(Math.round(fitPps * 100) / 100)
+  }, [
+    addToast,
+    effectiveDurationMs,
+    pixelsPerSecond,
+    prepareZoomAnchor,
+    reviewTaskId,
+    timelineViewportWidth,
+    zoomBounds,
+  ])
 
   if (!isReviewModalOpen) {
     return null
@@ -479,24 +641,39 @@ export function ReviewModal() {
   const confirmLabel = isTimelineReady ? '重新切分并覆盖' : '确认并切分'
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-[#09090b]">
-      <div className="flex items-center justify-between border-b border-[#27272a] bg-[#111113] px-4 py-2.5">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <h2 className="text-sm font-semibold text-[#f4f4f5]">场景预览确认</h2>
-            {isDirty ? <span className="text-xs text-[#f59e0b]">已修改</span> : null}
-            <span className="text-xs text-[#71717a]">{scenes.length} 个镜头</span>
-            {isTimelineReady ? <span className="text-xs text-[#60a5fa]">已切分，可继续调整</span> : null}
+    <div className="fixed inset-0 z-50 flex flex-col bg-[var(--sc-bg-app)] text-[var(--sc-text-primary)]">
+      <div className="flex items-center justify-between border-b border-[var(--sc-border-subtle)] bg-[var(--sc-bg-panel)] px-4 py-2.5">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <h2 className="text-sm font-semibold text-[var(--sc-text-primary)]">场景预览确认</h2>
+              {isDirty ? (
+                <span
+                  className="rounded px-1.5 py-0.5 text-xs text-[#f6c15f]"
+                  style={{ boxShadow: 'inset 0 0 0 1px rgba(246, 193, 95, 0.45)' }}
+                >
+                  已修改
+                </span>
+              ) : null}
+              {isTimelineReady ? (
+                <span
+                  className="rounded px-1.5 py-0.5 text-xs text-[var(--sc-accent)]"
+                  style={{ boxShadow: 'inset 0 0 0 1px rgba(91, 140, 255, 0.45)' }}
+                >
+                  已切分，可继续调整
+                </span>
+              ) : null}
+            </div>
+            {splitStatsSummary ? (
+              <p className="mt-0.5 text-xs text-[var(--sc-text-muted)]">{splitStatsSummary}</p>
+            ) : null}
           </div>
-          <p className="truncate text-xs text-[#71717a]">参考 Storyboard 成片编辑布局 · 当前任务 {reviewTaskId ?? '--'}</p>
-        </div>
 
         <div className="flex items-center gap-2">
           {isTimelineReady ? (
             <button
               type="button"
               onClick={handleViewTimeline}
-              className="inline-flex h-8 items-center rounded-md border border-[#3f3f46] bg-[#18181b] px-3 text-sm text-[#e4e4e7] hover:bg-[#27272a]"
+              className="sc-btn sc-btn-secondary h-8 px-3"
             >
               查看工作台
             </button>
@@ -506,7 +683,7 @@ export function ReviewModal() {
             type="button"
             onClick={handleConfirm}
             disabled={isConfirming || scenes.length === 0}
-            className="inline-flex h-8 items-center rounded-md bg-[#2563eb] px-3 text-sm font-medium text-white transition-colors hover:bg-[#1d4ed8] disabled:cursor-not-allowed disabled:bg-[#64748b]"
+            className="sc-btn sc-btn-primary h-8 px-3"
           >
             {isConfirming ? '提交中...' : confirmLabel}
           </button>
@@ -514,7 +691,7 @@ export function ReviewModal() {
           <button
             type="button"
             onClick={closeReviewModal}
-            className="inline-flex h-8 w-8 items-center justify-center rounded-full text-[#a1a1aa] hover:bg-[#27272a] hover:text-white"
+            className="sc-btn sc-btn-ghost sc-btn-icon"
             aria-label="关闭"
           >
             ✕
@@ -523,19 +700,13 @@ export function ReviewModal() {
       </div>
 
       {isLoading ? (
-        <div className="flex flex-1 items-center justify-center text-[#a1a1aa]">加载审核数据中...</div>
+        <div className="flex flex-1 items-center justify-center text-[var(--sc-text-muted)]">加载审核数据中...</div>
       ) : (
         <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_320px] overflow-hidden">
-          <div className="flex min-h-0 min-w-0 flex-col bg-[#0a0a0a]">
-            <div className="grid min-h-0 flex-1 grid-rows-[minmax(260px,7fr)_56px_48px_minmax(160px,3fr)]">
-              <div className="border-b border-[#27272a] bg-[#0f0f0f] p-4">
-                <div className="mb-2 flex items-center justify-between">
-                  <span className="text-sm font-semibold text-[#f4f4f5]">视频预览</span>
-                  <span className="font-mono text-xs text-[#a1a1aa]">
-                    {selectedSceneIndex !== null ? `镜头 #${selectedSceneIndex + 1}` : '未定位镜头'}
-                  </span>
-                </div>
-                <div className="h-[calc(100%-28px)] overflow-hidden rounded-lg border border-[#27272a] bg-black">
+          <div className="flex min-h-0 min-w-0 flex-col bg-[var(--sc-bg-contrast)]">
+            <div className="grid min-h-0 flex-1 grid-rows-[minmax(260px,8fr)_56px_48px_minmax(160px,3fr)]">
+              <div className="border-b border-[var(--sc-border-subtle)] bg-[var(--sc-bg-surface)] p-4">
+                <div className="h-full overflow-hidden rounded-lg border border-[var(--sc-border-subtle)] bg-black">
                   {sourceVideoUrl && !videoLoadFailed ? (
                     <video
                       ref={videoRef}
@@ -552,7 +723,7 @@ export function ReviewModal() {
                       onError={handleVideoError}
                     />
                   ) : (
-                    <div className="flex h-full items-center justify-center text-sm text-[#71717a]">
+                    <div className="flex h-full items-center justify-center text-sm text-[var(--sc-text-muted)]">
                       {sourceVideoUrl ? '原视频加载失败，无法播放' : '未找到原视频源'}
                     </div>
                   )}
@@ -563,34 +734,42 @@ export function ReviewModal() {
                 playheadMs={playheadMs}
                 durationMs={effectiveDurationMs}
                 isPlaying={isPlaying}
+                playbackRate={playbackRate}
+                playbackRateOptions={PLAYBACK_RATE_OPTIONS}
                 onSeek={seekPlayhead}
                 onStepSecondBack={() => stepPlayhead(-1000)}
                 onStepSecondForward={() => stepPlayhead(1000)}
                 onTogglePlay={() => {
                   void handleTogglePlayback()
                 }}
+                onPlaybackRateChange={(rate) => {
+                  if (!PLAYBACK_RATE_OPTIONS.includes(rate)) {
+                    return
+                  }
+                  setPlaybackRate(rate)
+                }}
               />
 
-              <div className="flex items-center justify-between border-b border-[#27272a] bg-[#0f0f0f] px-4 text-xs text-[#a1a1aa]">
+              <div className="flex items-center justify-between border-b border-[var(--sc-border-subtle)] bg-[var(--sc-bg-surface)] px-4 text-xs text-[var(--sc-text-muted)]">
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
                     onClick={() => handleAddBoundary(playheadMs)}
-                    className="rounded border border-[#3f3f46] bg-[#18181b] px-2 py-1 text-[#d4d4d8] hover:bg-[#27272a]"
+                    className="sc-btn sc-btn-secondary h-7 px-2"
                   >
                     添加切分点
                   </button>
                   <button
                     type="button"
                     onClick={deleteBoundaryNearPlayhead}
-                    className="rounded border border-[#3f3f46] bg-[#18181b] px-2 py-1 text-[#d4d4d8] hover:bg-[#27272a]"
+                    className="sc-btn sc-btn-secondary h-7 px-2"
                   >
                     删除临近切分点
                   </button>
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <span className="text-[#71717a]">缩放</span>
+                  <span className="text-[var(--sc-text-secondary)]">缩放</span>
                   <input
                     type="range"
                     min={0}
@@ -598,13 +777,20 @@ export function ReviewModal() {
                     step={1}
                     value={Math.round(zoomNormalized * 100)}
                     onChange={handleZoomSliderChange}
-                    className="h-1.5 w-32 accent-[#2563eb]"
+                    className="sc-range h-1.5 w-32"
                   />
-                  <span className="w-14 text-right font-mono">{Math.round(pixelsPerSecond)}px/s</span>
+                  <span className="w-14 text-right font-mono text-[var(--sc-text-secondary)]">{Math.round(pixelsPerSecond)}px/s</span>
+                  <button
+                    type="button"
+                    onClick={handleZoomReset}
+                    className="sc-btn sc-btn-secondary h-7 px-2"
+                  >
+                    重置
+                  </button>
                 </div>
               </div>
 
-              <div className="min-h-0 bg-[#09090b] px-4">
+              <div className="min-h-0 bg-[var(--sc-bg-panel)] px-4">
                 {effectiveDurationMs > 0 ? (
                   <ReviewTimelineWorkspace
                     ref={timelineRef}
@@ -624,13 +810,13 @@ export function ReviewModal() {
                     onSetPlayhead={seekPlayhead}
                   />
                 ) : (
-                  <div className="flex h-full items-center justify-center text-[#71717a]">无可用时间轴数据</div>
+                  <div className="flex h-full items-center justify-center text-[var(--sc-text-muted)]">无可用时间轴数据</div>
                 )}
               </div>
             </div>
           </div>
 
-          <div className="min-h-0 border-l border-[#27272a] bg-[#0f0f0f]">
+          <div className="min-h-0 border-l border-[var(--sc-border-subtle)] bg-[var(--sc-bg-panel)]">
             <ReviewShotSummaryPanel
               taskId={reviewTaskId ?? ''}
               scenes={scenes}

@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     UPLOAD_DIR: str = "./data/uploads"
     TASK_DIR: str = "./data/tasks"
     MAX_UPLOAD_SIZE: int = 524288000  # 500MB
+    ENABLE_INCREMENTAL_SPLIT: bool = True
 
     # CORS
     CORS_ORIGINS: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]

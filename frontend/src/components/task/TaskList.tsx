@@ -76,22 +76,22 @@ export function TaskList({
   }
 
   return (
-    <div className="h-full min-h-0 flex flex-col gap-2">
-      <div className="flex flex-col gap-2 rounded-lg border border-[#27272a] bg-[#0f0f0f] px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-2 text-sm text-[#71717a]">
+    <div className="flex h-full min-h-0 flex-col gap-2">
+      <div className="sc-toolbar flex flex-col gap-2 rounded-lg px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-2 text-sm text-[var(--sc-text-secondary)]">
           <Checkbox
             checked={allVisibleSelected}
             onChange={() => onToggleAllVisible()}
             aria-label="全选当前列表任务"
           />
-          <span className="font-medium">全选当前列表</span>
-          <span className="text-[#71717a]">已选择 {selectedTaskIds.size} 项</span>
+          <span className="font-medium text-[var(--sc-text-primary)]">全选当前列表</span>
+          <span className="text-[var(--sc-text-muted)]">已选择 {selectedTaskIds.size} 项</span>
         </div>
-        <div className="flex items-center gap-2 justify-end">
+        <div className="flex items-center justify-end gap-2">
           <button
             type="button"
             onClick={onAddSource}
-            className="inline-flex h-8 items-center justify-center gap-1 rounded-md border border-[#27272a] bg-[#18181b] px-4 text-sm font-medium text-[#d4d4d8] transition-colors hover:border-primary hover:bg-[rgba(47,140,255,0.08)]"
+            className="sc-btn sc-btn-secondary h-8 gap-1 px-4"
           >
             <span className="text-base leading-none">+</span>
             添加来源
@@ -99,7 +99,7 @@ export function TaskList({
           <button
             type="button"
             onClick={() => setIsConfigOpen(true)}
-            className="inline-flex h-8 items-center justify-center rounded-md border border-[#27272a] bg-[#18181b] px-4 text-sm font-medium text-[#d4d4d8] transition-colors hover:border-primary hover:bg-[rgba(47,140,255,0.08)]"
+            className="sc-btn sc-btn-secondary h-8 px-4"
           >
             参数配置
           </button>
@@ -117,12 +117,12 @@ export function TaskList({
       </div>
 
       {tasks.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-[#27272a] bg-[#0f0f0f] px-4 py-6 text-sm text-[#71717a]">
+        <div className="rounded-lg border border-dashed border-[var(--sc-border-subtle)] bg-[var(--sc-bg-contrast)] px-4 py-6 text-sm text-[var(--sc-text-muted)]">
           当前暂无任务
         </div>
       ) : (
-        <div className="flex-1 min-h-0 overflow-hidden rounded-lg border border-[#27272a] bg-[#18181b] flex flex-col">
-          <div className="grid grid-cols-[32px_2.8fr_1.2fr_0.6fr_0.9fr_1fr] items-center gap-x-3 border-b border-[#27272a] bg-[#0f0f0f] px-3 py-2 text-sm font-semibold text-[#71717a]">
+        <div className="sc-table-shell flex flex-1 min-h-0 flex-col overflow-hidden rounded-lg">
+          <div className="sc-table-header grid grid-cols-[32px_2.8fr_1.2fr_0.6fr_0.9fr_1fr] items-center gap-x-3 px-3 py-2 text-sm font-semibold">
             <div />
             <div>任务名称</div>
             <div>状态 / 进度</div>

@@ -45,6 +45,7 @@ def _ensure_tasks_columns():
         "suspect_segments": "TEXT",
         "tuning_history": "TEXT",
         "review_notes": "TEXT",
+        "split_stats": "TEXT",
         "detection_result": "TEXT",
         "user_edited_scenes": "TEXT",
         "reviewed_at": "DATETIME",

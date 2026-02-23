@@ -22,6 +22,39 @@ class FileService:
         return normalized
 
     @staticmethod
+    def _split_name_suffix(file_name: str) -> tuple[str, str]:
+        """
+        拆分“主名 + 扩展名”，支持多扩展名，后缀插入格式为 name_001.ext。
+        """
+        suffix = "".join(Path(file_name).suffixes)
+        if suffix and len(file_name) > len(suffix):
+            stem = file_name[:-len(suffix)]
+        else:
+            stem = file_name
+            suffix = ""
+
+        stem = stem.rstrip(" .")
+        if not stem:
+            stem = "upload"
+        return stem, suffix
+
+    @classmethod
+    def _build_unique_upload_path(cls, upload_root: Path, safe_name: str) -> Path:
+        """按 name, name_001, name_002... 生成上传文件唯一路径。"""
+        stem, suffix = cls._split_name_suffix(safe_name)
+        counter = 0
+
+        while True:
+            if counter == 0:
+                candidate = upload_root / f"{stem}{suffix}"
+            else:
+                candidate = upload_root / f"{stem}_{counter:03d}{suffix}"
+
+            if not candidate.exists():
+                return candidate.resolve()
+            counter += 1
+
+    @staticmethod
     def to_public_data_path(path_value: str | None) -> str | None:
         """将本地文件路径转换为可访问的 /data 静态路径。"""
         if not path_value:
@@ -66,7 +99,7 @@ class FileService:
 
         safe_name = FileService._sanitize_filename(file.filename)
         upload_root = upload_dir.resolve()
-        file_path = (upload_root / f"{task_id}_{safe_name}").resolve()
+        file_path = FileService._build_unique_upload_path(upload_root, safe_name)
 
         if not (file_path.parent == upload_root or upload_root in file_path.parents):
             raise ValueError("Invalid upload filename")
@@ -148,7 +181,11 @@ class FileService:
         return None
 
     @staticmethod
-    def delete_task_files(task_id: str, task_dir_path: Optional[str] = None):
+    def delete_task_files(
+        task_id: str,
+        task_dir_path: Optional[str] = None,
+        upload_file_path: Optional[str] = None,
+    ):
         """删除任务相关的所有文件"""
         task_root = Path(settings.TASK_DIR).resolve()
 
@@ -185,10 +222,21 @@ class FileService:
         if legacy_task_dir.exists():
             shutil.rmtree(legacy_task_dir)
 
-        # 删除原始上传文件
-        upload_dir = Path(settings.UPLOAD_DIR)
-        for file in upload_dir.glob(f"{task_id}_*"):
-            file.unlink()
+        # 删除原始上传文件（按任务记录精确路径）
+        upload_root = Path(settings.UPLOAD_DIR).resolve()
+        if upload_file_path:
+            upload_path = Path(upload_file_path)
+            resolved_upload_path = upload_path.resolve()
+            if upload_root == resolved_upload_path.parent or upload_root in resolved_upload_path.parents:
+                if resolved_upload_path.exists():
+                    resolved_upload_path.unlink()
+            else:
+                logger.warning(f"跳过删除非上传目录路径: {resolved_upload_path}")
+
+        # 删除上传预览图
+        preview_path = FileService.build_upload_preview_path(task_id).resolve()
+        if upload_root == preview_path.parent or upload_root in preview_path.parents:
+            preview_path.unlink(missing_ok=True)
 
     @staticmethod
     def delete_split_assets(task_id: str, keep_task_dir_path: Optional[str] = None):

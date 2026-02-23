@@ -1,6 +1,7 @@
 import json
 import subprocess
 import tempfile
+import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Any, List
@@ -65,7 +66,7 @@ def _task_to_payload(task: Task, db: Session) -> dict[str, Any]:
     return {
         "id": task.id,
         "display_name": task.display_name,
-        "file_path": task.file_path,
+        "file_path": FileService.to_public_data_path(task.file_path),
         "file_size": task.file_size or 0,
         "status": task.status,
         "progress": task.progress or 0,
@@ -80,6 +81,7 @@ def _task_to_payload(task: Task, db: Session) -> dict[str, Any]:
         "suspect_segments": _loads_json(task.suspect_segments, default=[]),
         "tuning_history": _loads_json(task.tuning_history, default=[]),
         "review_notes": task.review_notes,
+        "latest_split_stats": _loads_json(task.split_stats),
         "detection_result": _loads_json(task.detection_result),
         "user_edited_scenes": _loads_json(task.user_edited_scenes),
         "reviewed_at": task.reviewed_at,
@@ -92,6 +94,44 @@ def _to_dict(model: Any) -> dict[str, Any]:
     if hasattr(model, "model_dump"):
         return model.model_dump(exclude_none=True)
     return model.dict(exclude_none=True)
+
+
+def _data_root() -> Path:
+    return (Path(__file__).resolve().parents[2] / "data").resolve()
+
+
+def _resolve_local_data_file(path_value: str | None) -> Path | None:
+    if not path_value:
+        return None
+
+    normalized = path_value.replace("\\", "/").strip()
+    if not normalized:
+        return None
+
+    root = _data_root()
+    candidate: Path
+    if normalized.startswith("/data/"):
+        candidate = (root / normalized.removeprefix("/data/")).resolve()
+    elif normalized.startswith("data/"):
+        candidate = (root / normalized.removeprefix("data/")).resolve()
+    else:
+        raw_path = Path(normalized)
+        candidate = raw_path.resolve() if raw_path.is_absolute() else (root / raw_path).resolve()
+
+    if candidate == root or root in candidate.parents:
+        return candidate
+    return None
+
+
+def _open_folder_in_file_manager(folder_path: Path) -> None:
+    if sys.platform == "darwin":
+        cmd = ["open", str(folder_path)]
+    elif sys.platform.startswith("win"):
+        cmd = ["explorer", str(folder_path)]
+    else:
+        cmd = ["xdg-open", str(folder_path)]
+
+    subprocess.run(cmd, check=True, capture_output=True, timeout=10)
 
 
 @router.get("/tasks", response_model=List[TaskResponse])
@@ -137,7 +177,11 @@ def delete_task(task_id: str, db: Session = Depends(get_db)):
             task_dir_path = str(candidate.parent)
         break
 
-    FileService.delete_task_files(task_id, task_dir_path=task_dir_path)
+    FileService.delete_task_files(
+        task_id,
+        task_dir_path=task_dir_path,
+        upload_file_path=task.file_path,
+    )
 
     db.delete(task)
     db.commit()
@@ -183,6 +227,7 @@ def process_task(
             "metadata": metadata,
         }
     ])
+    task.split_stats = None
     db.commit()
 
     try:
@@ -261,6 +306,7 @@ def start_review(
     task.config_profile = request.profile
     task.requested_config = _to_json(override_config or {})
     task.resolved_config = _to_json(resolved_config)
+    task.split_stats = None
     db.commit()
 
     try:
@@ -320,17 +366,51 @@ def save_review_data(
     return {"success": True}
 
 
+@router.post("/tasks/{task_id}/review/reset-from-timeline")
+def reset_review_data_from_timeline(task_id: str, db: Session = Depends(get_db)):
+    """将审核页草稿重置为当前时间轴切分结果，避免返回编辑时镜头数不一致。"""
+    task = db.query(Task).filter(Task.id == task_id).first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    if task.status != "TIMELINE_READY":
+        raise HTTPException(status_code=409, detail="Task not in TIMELINE_READY state")
+
+    timeline_scenes = (
+        db.query(Scene.start_ms, Scene.end_ms)
+        .filter(Scene.task_id == task_id)
+        .order_by(Scene.sequence_index.asc())
+        .all()
+    )
+    if not timeline_scenes:
+        raise HTTPException(status_code=409, detail="No timeline scenes available")
+
+    normalized_scenes = [
+        {"start_ms": int(start_ms), "end_ms": int(end_ms)}
+        for start_ms, end_ms in timeline_scenes
+    ]
+    task.user_edited_scenes = _to_json(normalized_scenes)
+    task.total_scenes = len(normalized_scenes)
+    db.commit()
+
+    return {
+        "success": True,
+        "scenes_count": len(normalized_scenes),
+        "source": "timeline_scenes",
+    }
+
+
 @router.post("/tasks/{task_id}/approve")
 def approve_review(task_id: str, db: Session = Depends(get_db)):
     """用户确认场景，入队切分任务。"""
     task = db.query(Task).filter(Task.id == task_id).first()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    if task.status != "REVIEW_PENDING":
-        raise HTTPException(status_code=409, detail=f"Task not in REVIEW_PENDING state (current={task.status})")
+    if task.status not in ("REVIEW_PENDING", "TIMELINE_READY"):
+        raise HTTPException(status_code=409, detail=f"Task cannot be approved in current state (current={task.status})")
 
     task.status = "REVIEW_APPROVED"
     task.reviewed_at = datetime.utcnow()
+    task.split_stats = None
     db.commit()
 
     try:
@@ -345,20 +425,6 @@ def approve_review(task_id: str, db: Session = Depends(get_db)):
         task.status = "REVIEW_PENDING"
         db.commit()
         raise HTTPException(status_code=500, detail=f"Failed to queue split: {str(exc)}")
-
-
-@router.post("/tasks/{task_id}/finalize")
-def finalize_task(task_id: str, db: Session = Depends(get_db)):
-    """用户点击「完成」，将 TIMELINE_READY 状态推进为 COMPLETED。"""
-    task = db.query(Task).filter(Task.id == task_id).first()
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
-    if task.status != "TIMELINE_READY":
-        raise HTTPException(status_code=409, detail="Task not in TIMELINE_READY state")
-
-    task.status = "COMPLETED"
-    db.commit()
-    return {"success": True}
 
 
 @router.post("/tasks/{task_id}/return-to-review")
@@ -376,6 +442,37 @@ def return_to_review(task_id: str, db: Session = Depends(get_db)):
     task.total_scenes = None
     db.commit()
     return {"success": True}
+
+
+@router.post("/tasks/{task_id}/scenes/{scene_id}/open-folder")
+def open_scene_folder(task_id: str, scene_id: str, db: Session = Depends(get_db)):
+    """在系统文件管理器中打开指定切片所在目录。"""
+    scene = db.query(Scene).filter(Scene.task_id == task_id, Scene.id == scene_id).first()
+    if not scene:
+        raise HTTPException(status_code=404, detail="Scene not found")
+    if not scene.file_path:
+        raise HTTPException(status_code=409, detail="Scene file path unavailable")
+
+    clip_path = _resolve_local_data_file(scene.file_path)
+    if not clip_path:
+        raise HTTPException(status_code=400, detail="Invalid scene file path")
+    if not clip_path.exists():
+        raise HTTPException(status_code=404, detail="Scene file not found")
+
+    folder_path = clip_path if clip_path.is_dir() else clip_path.parent
+    try:
+        _open_folder_in_file_manager(folder_path)
+    except subprocess.TimeoutExpired as exc:
+        raise HTTPException(status_code=504, detail="Open folder timed out") from exc
+    except subprocess.CalledProcessError as exc:
+        stderr = (
+            exc.stderr.decode(errors="ignore")
+            if isinstance(exc.stderr, bytes)
+            else str(exc.stderr or "")
+        )
+        raise HTTPException(status_code=500, detail=f"Failed to open folder: {stderr}") from exc
+
+    return {"success": True, "folder_path": str(folder_path)}
 
 
 @router.get("/tasks/{task_id}/frame")

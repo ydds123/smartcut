@@ -4,12 +4,17 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import shutil
 import time
+from collections import defaultdict, deque
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from rq import get_current_job
 
+from app.core.config import settings
 from app.core.database import SessionLocal
 from app.models.models import Scene, Task
 from app.services.file_service import FileService
@@ -35,6 +40,75 @@ def _from_json(value: str | None, default: Any) -> Any:
         return json.loads(value)
     except json.JSONDecodeError:
         return default
+
+
+def _has_nonempty_file(path: str | None) -> bool:
+    if not path:
+        return False
+    file_path = Path(path)
+    return file_path.exists() and file_path.is_file() and file_path.stat().st_size > 0
+
+
+def _build_incremental_plan(
+    scenes: list[tuple[int, int]],
+    existing_scene_rows: list[Scene],
+) -> tuple[dict[int, Scene], list[tuple[int, int, int]]]:
+    """
+    基于镜头边界构建增量计划：
+    - 可复用镜头：start/end 完全一致，且旧切片+缩略图都可用
+    - 需重切镜头：新增或边界变化，或旧文件缺失
+    """
+    old_by_boundary: dict[tuple[int, int], deque[Scene]] = defaultdict(deque)
+    for row in existing_scene_rows:
+        key = (int(row.start_ms), int(row.end_ms))
+        old_by_boundary[key].append(row)
+
+    reused: dict[int, Scene] = {}
+    to_render: list[tuple[int, int, int]] = []
+
+    for index, (start_ms, end_ms) in enumerate(scenes):
+        key = (int(start_ms), int(end_ms))
+        candidates = old_by_boundary.get(key)
+        matched = candidates.popleft() if candidates else None
+        if matched and _has_nonempty_file(matched.file_path) and _has_nonempty_file(matched.thumbnail_path):
+            reused[index] = matched
+        else:
+            to_render.append((index, int(start_ms), int(end_ms)))
+
+    return reused, to_render
+
+
+def _materialize_file(src_path: str, dst_path: Path) -> str:
+    """将源文件落到新任务目录，优先硬链接，失败回退复制。"""
+    dst_path.parent.mkdir(parents=True, exist_ok=True)
+    if dst_path.exists():
+        dst_path.unlink()
+
+    src = Path(src_path)
+    if not src.exists() or not src.is_file():
+        raise FileNotFoundError(f"source file missing: {src}")
+
+    try:
+        os.link(src, dst_path)
+        mode = "link"
+    except OSError:
+        shutil.copy2(src, dst_path)
+        mode = "copy"
+
+    if not dst_path.exists() or dst_path.stat().st_size <= 0:
+        raise RuntimeError(f"materialized file is empty: {dst_path}")
+    return mode
+
+
+def _run_full_review_split(
+    processor: VideoProcessor,
+    scenes: list[tuple[int, int]],
+    progress_callback,
+) -> tuple[list[str], list[str | None]]:
+    result = processor.split_video_from_scenes(scenes, progress_callback=progress_callback)
+    output_files = result["output_files"]
+    thumbnails = result["thumbnails"]
+    return output_files, thumbnails
 
 
 def process_video_task(
@@ -306,47 +380,203 @@ def split_video_after_review(task_id: str) -> dict:
     """RQ entrypoint: 读取用户编辑后的场景列表，执行切分 + 缩略图，状态设为 TIMELINE_READY。"""
     job = get_current_job()
     db = SessionLocal()
+    task_ref: Task | None = None
+    last_db_commit_monotonic = 0.0
+    last_db_progress = -1
+    progress_db_min_interval_sec = 0.5
+    progress_db_min_step = 2
 
-    def update_progress(progress: int, status: str | None = None):
+    def update_progress(progress: int, status: str | None = None, force: bool = False):
+        nonlocal last_db_commit_monotonic, last_db_progress
+        clamped_progress = max(0, min(100, int(progress)))
+
         if job:
-            job.meta["progress"] = progress
+            job.meta["progress"] = clamped_progress
             if status:
                 job.meta["status"] = status
             job.save_meta()
-        task = db.query(Task).filter(Task.id == task_id).first()
-        if task:
-            task.progress = progress
-            if status:
-                task.status = status
+
+        if not task_ref:
+            return
+
+        task_ref.progress = clamped_progress
+        if status:
+            task_ref.status = status
+
+        now = time.monotonic()
+        should_commit = bool(force or status)
+        if not should_commit:
+            progress_delta = clamped_progress - last_db_progress
+            time_delta = now - last_db_commit_monotonic
+            should_commit = (
+                progress_delta >= progress_db_min_step
+                or time_delta >= progress_db_min_interval_sec
+            )
+
+        if should_commit:
             db.commit()
+            last_db_progress = clamped_progress
+            last_db_commit_monotonic = now
 
     try:
-        task = db.query(Task).filter(Task.id == task_id).first()
-        if not task:
+        total_started_at = time.perf_counter()
+        task_ref = db.query(Task).filter(Task.id == task_id).first()
+        if not task_ref:
             return {"success": False, "error": "Task not found"}
 
         # 优先使用用户编辑后的场景，回退到检测结果
-        raw = _from_json(task.user_edited_scenes, default=None) or \
-              _from_json(task.detection_result, default={}).get("scenes", [])
+        raw = _from_json(task_ref.user_edited_scenes, default=None) or \
+              _from_json(task_ref.detection_result, default={}).get("scenes", [])
 
         scenes: list[tuple[int, int]] = [(s["start_ms"], s["end_ms"]) for s in raw]
         if not scenes:
             raise ValueError("No scenes available for splitting")
 
-        video_path = task.file_path
-        active_config = _from_json(task.resolved_config, default={})
+        video_path = task_ref.file_path
+        active_config = _from_json(task_ref.resolved_config, default={})
 
         logger.info("开始切分任务 %s，共 %s 个场景", task_id, len(scenes))
-        update_progress(0, "SPLITTING")
+        update_progress(0, "SPLITTING", force=True)
+
+        existing_scene_rows = (
+            db.query(Scene)
+            .filter(Scene.task_id == task_id)
+            .order_by(Scene.sequence_index.asc())
+            .all()
+        )
 
         processor = VideoProcessor(task_id, video_path, processing_config=active_config)
+        plan_elapsed_ms = 0.0
+        reuse_materialize_elapsed_ms = 0.0
+        render_elapsed_ms = 0.0
+        db_elapsed_ms = 0.0
+        cleanup_elapsed_ms = 0.0
+
+        incremental_enabled = bool(getattr(settings, "ENABLE_INCREMENTAL_SPLIT", True))
+        fallback_full_resplit = False
+        reused_count = 0
+        rendered_count = len(scenes)
+        link_success_count = 0
+        copy_fallback_count = 0
+        output_files: list[str] = []
+        thumbnails: list[str | None] = []
 
         def progress_callback(p: int):
             update_progress(p)
 
-        result = processor.split_video_from_scenes(scenes, progress_callback=progress_callback)
-        output_files = result["output_files"]
-        thumbnails = result["thumbnails"]
+        if incremental_enabled and existing_scene_rows:
+            plan_started_at = time.perf_counter()
+            reused_map, to_render = _build_incremental_plan(scenes, existing_scene_rows)
+            plan_elapsed_ms = round((time.perf_counter() - plan_started_at) * 1000, 2)
+            reused_count = len(reused_map)
+            rendered_count = len(to_render)
+            logger.info(
+                "任务 %s 增量切分规划：total=%s reused=%s rendered=%s",
+                task_id,
+                len(scenes),
+                reused_count,
+                rendered_count,
+            )
+
+            if reused_count > 0 and rendered_count < len(scenes):
+                try:
+                    output_files = ["" for _ in scenes]
+                    thumbnails = [None for _ in scenes]
+
+                    materialize_started_at = time.perf_counter()
+                    for index, existing_scene in reused_map.items():
+                        dst_video = processor.scenes_dir / f"scene_{index:03d}.mp4"
+                        dst_thumb = processor.scenes_dir / f"scene_{index:03d}_thumb.jpg"
+                        video_mode = _materialize_file(existing_scene.file_path, dst_video)
+                        thumb_mode = _materialize_file(existing_scene.thumbnail_path, dst_thumb)
+                        if video_mode == "link":
+                            link_success_count += 1
+                        else:
+                            copy_fallback_count += 1
+                        if thumb_mode == "link":
+                            link_success_count += 1
+                        else:
+                            copy_fallback_count += 1
+                        output_files[index] = str(dst_video)
+                        thumbnails[index] = str(dst_thumb)
+                    reuse_materialize_elapsed_ms = round((time.perf_counter() - materialize_started_at) * 1000, 2)
+
+                    if to_render:
+                        render_indices = [index for index, _, _ in to_render]
+                        render_scenes = [(start_ms, end_ms) for _, start_ms, end_ms in to_render]
+
+                        progress_base = int((reused_count / max(1, len(scenes))) * 50)
+                        update_progress(progress_base)
+
+                        def incremental_progress_callback(raw_progress: int):
+                            mapped = progress_base + int((max(0, min(raw_progress, 100)) / 100) * (90 - progress_base))
+                            update_progress(mapped)
+
+                        render_started_at = time.perf_counter()
+                        partial_result = processor.split_video_from_scenes(
+                            render_scenes,
+                            progress_callback=incremental_progress_callback,
+                            output_indices=render_indices,
+                        )
+                        render_elapsed_ms = round((time.perf_counter() - render_started_at) * 1000, 2)
+                        partial_outputs = partial_result["output_files"]
+                        partial_thumbs = partial_result["thumbnails"]
+
+                        if len(partial_outputs) != len(render_scenes):
+                            raise RuntimeError(
+                                "incremental split outputs mismatch: "
+                                f"expected={len(render_scenes)}, actual={len(partial_outputs)}"
+                            )
+                        if len(partial_thumbs) != len(partial_outputs):
+                            raise RuntimeError(
+                                "incremental thumbnail outputs mismatch: "
+                                f"expected={len(partial_outputs)}, actual={len(partial_thumbs)}"
+                            )
+
+                        for pos, target_index in enumerate(render_indices):
+                            output_files[target_index] = partial_outputs[pos]
+                            thumbnails[target_index] = partial_thumbs[pos]
+                    else:
+                        update_progress(90)
+
+                    if any(not path for path in output_files):
+                        raise RuntimeError("incremental split result has empty output file path")
+                except Exception as incremental_exc:
+                    fallback_full_resplit = True
+                    reused_count = 0
+                    rendered_count = len(scenes)
+                    logger.warning(
+                        "任务 %s 增量切分失败，回退全量切分: %s",
+                        task_id,
+                        incremental_exc,
+                    )
+                    processor = VideoProcessor(task_id, video_path, processing_config=active_config)
+                    render_started_at = time.perf_counter()
+                    output_files, thumbnails = _run_full_review_split(
+                        processor,
+                        scenes,
+                        progress_callback=progress_callback,
+                    )
+                    render_elapsed_ms = round((time.perf_counter() - render_started_at) * 1000, 2)
+            else:
+                # 无可复用镜头时直接全量切分，避免增量路径无收益。
+                reused_count = 0
+                rendered_count = len(scenes)
+                render_started_at = time.perf_counter()
+                output_files, thumbnails = _run_full_review_split(
+                    processor,
+                    scenes,
+                    progress_callback=progress_callback,
+                )
+                render_elapsed_ms = round((time.perf_counter() - render_started_at) * 1000, 2)
+        else:
+            render_started_at = time.perf_counter()
+            output_files, thumbnails = _run_full_review_split(
+                processor,
+                scenes,
+                progress_callback=progress_callback,
+            )
+            render_elapsed_ms = round((time.perf_counter() - render_started_at) * 1000, 2)
 
         if len(output_files) != len(scenes):
             raise RuntimeError(
@@ -357,6 +587,7 @@ def split_video_after_review(task_id: str) -> dict:
                 f"thumbnail outputs mismatch: expected={len(output_files)}, actual={len(thumbnails)}"
             )
 
+        db_started_at = time.perf_counter()
         db.query(Scene).filter(Scene.task_id == task_id).delete()
         scene_rows = [
             Scene(
@@ -373,29 +604,66 @@ def split_video_after_review(task_id: str) -> dict:
         if scene_rows:
             db.bulk_save_objects(scene_rows)
 
-        task = db.query(Task).filter(Task.id == task_id).first()
-        if task:
-            task.status = "TIMELINE_READY"
-            task.progress = 100
-            task.total_scenes = len(scenes)
+        if task_ref:
+            task_ref.status = "TIMELINE_READY"
+            task_ref.progress = 100
+            task_ref.total_scenes = len(scenes)
+            # 以本轮实际切分结果回写审核草稿，确保返回编辑与工作台镜头数一致。
+            task_ref.user_edited_scenes = _to_json(
+                [{"start_ms": start_ms, "end_ms": end_ms} for start_ms, end_ms in scenes]
+            )
         db.commit()
+        db_elapsed_ms = round((time.perf_counter() - db_started_at) * 1000, 2)
+        last_db_commit_monotonic = time.monotonic()
+        last_db_progress = 100
 
         # 保留本轮最新切分目录，清理同任务历史切分目录，避免旧切片残留。
+        cleanup_started_at = time.perf_counter()
         try:
             FileService.delete_split_assets(task_id, keep_task_dir_path=str(processor.task_dir))
         except Exception as cleanup_exc:
             logger.warning("任务 %s 清理历史切片目录失败: %s", task_id, cleanup_exc)
+        cleanup_elapsed_ms = round((time.perf_counter() - cleanup_started_at) * 1000, 2)
 
-        logger.info("任务 %s 切分完成，状态 TIMELINE_READY", task_id)
-        return {"success": True, "scenes_count": len(scenes)}
+        reused_ratio = round(reused_count / max(1, len(scenes)), 4)
+        split_stats = {
+            "total_scenes": len(scenes),
+            "reused_count": reused_count,
+            "rendered_count": rendered_count,
+            "reused_ratio": reused_ratio,
+            "incremental_enabled": incremental_enabled,
+            "fallback_full_resplit": fallback_full_resplit,
+            "link_success_count": link_success_count,
+            "copy_fallback_count": copy_fallback_count,
+            "plan_elapsed_ms": plan_elapsed_ms,
+            "reuse_materialize_elapsed_ms": reuse_materialize_elapsed_ms,
+            "render_elapsed_ms": render_elapsed_ms,
+            "db_elapsed_ms": db_elapsed_ms,
+            "cleanup_elapsed_ms": cleanup_elapsed_ms,
+            "total_elapsed_ms": round((time.perf_counter() - total_started_at) * 1000, 2),
+        }
+
+        if task_ref:
+            task_ref.split_stats = _to_json(split_stats)
+            db.commit()
+        update_progress(100, force=True)
+
+        logger.info(
+            "任务 %s 切分完成，状态 TIMELINE_READY，stats=%s",
+            task_id,
+            _to_json(split_stats),
+        )
+        return {"success": True, "scenes_count": len(scenes), "split_stats": split_stats}
 
     except Exception as exc:
         logger.exception("任务 %s 切分异常", task_id)
-        task = db.query(Task).filter(Task.id == task_id).first()
-        if task:
-            task.status = "FAILED"
-            task.progress = 0
-            task.review_notes = str(exc)
+        if not task_ref:
+            task_ref = db.query(Task).filter(Task.id == task_id).first()
+        if task_ref:
+            task_ref.status = "FAILED"
+            task_ref.progress = 0
+            task_ref.review_notes = str(exc)
+            task_ref.split_stats = None
         db.commit()
         return {"success": False, "error": str(exc)}
 

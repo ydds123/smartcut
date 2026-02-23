@@ -140,14 +140,22 @@ export const taskService = {
     })
   },
 
+  resetReviewFromTimeline: async (
+    id: string
+  ): Promise<{ success: boolean; scenesCount: number; source: string }> => {
+    const response = await apiClient.post<any>(`/api/tasks/${id}/review/reset-from-timeline`)
+    return convertToCamelCase(response.data)
+  },
+
+  openSceneFolder: async (taskId: string, sceneId: string): Promise<{ success: boolean; folderPath: string }> => {
+    const response = await apiClient.post<any>(`/api/tasks/${taskId}/scenes/${sceneId}/open-folder`)
+    return convertToCamelCase(response.data)
+  },
+
   approveReview: async (id: string): Promise<{ status: string; job_id?: string }> => {
     const response = await apiClient.post<{ status: string; job_id?: string }>(
       `/api/tasks/${id}/approve`
     )
     return response.data
-  },
-
-  finalizeTask: async (id: string): Promise<void> => {
-    await apiClient.post(`/api/tasks/${id}/finalize`)
   },
 }

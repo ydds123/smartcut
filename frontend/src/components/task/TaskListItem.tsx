@@ -6,12 +6,22 @@ import { parseBackendDate } from '@/utils/dateTime'
 
 const backendBaseUrl = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000'
 
+function normalizeToDataPath(pathValue: string): string {
+  const normalized = pathValue.replace(/\\/g, '/')
+  const dataMarker = '/data/'
+  const markerIndex = normalized.indexOf(dataMarker)
+  if (markerIndex >= 0) {
+    return normalized.slice(markerIndex)
+  }
+  return normalized
+}
+
 function resolveAssetUrl(pathValue: string | null): string | null {
   if (!pathValue) {
     return null
   }
 
-  const normalized = pathValue.trim()
+  const normalized = normalizeToDataPath(pathValue.trim())
   if (!normalized) {
     return null
   }
@@ -81,11 +91,14 @@ export function TaskListItem({
 
   const previewUrl = resolveAssetUrl(task.previewThumbnailPath ?? null)
   const isBusy = isProcessing || isDeleting
+  const actionBtnClass = 'sc-btn sc-btn-secondary h-7 px-3 text-sm'
+  const dangerBtnClass =
+    'sc-btn h-7 px-3 text-sm border border-[#7a3641] bg-[rgba(244,95,108,0.14)] text-[#ffbcc2] hover:bg-[rgba(244,95,108,0.22)]'
 
   return (
     <div
-      className={`grid grid-cols-[32px_2.8fr_1.2fr_0.6fr_0.9fr_1fr] items-center gap-x-3 border-b border-[#27272a] px-3 py-2.5 transition-colors hover:bg-[#1c1c1f] ${
-        selected ? 'bg-[rgba(47,140,255,0.08)]' : 'bg-[#18181b]'
+      className={`sc-row grid grid-cols-[32px_2.8fr_1.2fr_0.6fr_0.9fr_1fr] items-center gap-x-3 px-3 py-2.5 ${
+        selected ? 'sc-row-selected' : ''
       }`}
     >
       <div className="flex items-center justify-center">
@@ -98,36 +111,36 @@ export function TaskListItem({
 
       <div className="min-w-0 pr-4">
         <div className="flex min-w-0 items-center gap-3">
-        <div className="h-[45px] w-20 flex-shrink-0 overflow-hidden rounded-md border border-[#27272a] bg-[#27272a]">
-          {previewUrl ? (
-            <img
-              src={previewUrl}
-              alt={task.displayName}
-              className="h-full w-full object-cover"
-              loading="lazy"
-            />
-          ) : (
-            <div className="flex h-full w-full items-center justify-center text-[#71717a]">
-              <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth="2"
-                  d="M4 7h16M4 12h16M4 17h16"
-                />
-              </svg>
-            </div>
-          )}
-        </div>
+          <div className="h-[45px] w-20 flex-shrink-0 overflow-hidden rounded-md border border-[var(--sc-border-subtle)] bg-[var(--sc-bg-surface)]">
+            {previewUrl ? (
+              <img
+                src={previewUrl}
+                alt={task.displayName}
+                className="h-full w-full object-cover"
+                loading="lazy"
+              />
+            ) : (
+              <div className="flex h-full w-full items-center justify-center text-[var(--sc-text-muted)]">
+                <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2"
+                    d="M4 7h16M4 12h16M4 17h16"
+                  />
+                </svg>
+              </div>
+            )}
+          </div>
 
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-semibold text-[#d4d4d8]" title={task.displayName}>
-            {task.displayName}
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-sm font-semibold text-[var(--sc-text-primary)]" title={task.displayName}>
+              {task.displayName}
+            </div>
+            <div className="mt-0.5 flex items-center gap-2 text-xs text-[var(--sc-text-muted)]">
+              <span>{formatFileSize(task.fileSize)}</span>
+            </div>
           </div>
-          <div className="mt-0.5 flex items-center gap-2 text-xs text-[#71717a]">
-            <span>{formatFileSize(task.fileSize)}</span>
-          </div>
-        </div>
         </div>
       </div>
 
@@ -135,36 +148,36 @@ export function TaskListItem({
         <StatusLabel status={liveStatus} className="text-sm" />
         {showProgress && (
           <div className="mt-1 flex items-center gap-2">
-            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-[#27272a]">
+            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-[var(--sc-bg-contrast)]">
               <div
                 className="h-full rounded-full bg-primary transition-all duration-300"
                 style={{ width: `${displayProgress}%` }}
               />
             </div>
-            <span className="w-11 text-right text-xs tabular-nums text-[#71717a]">
+            <span className="w-11 text-right text-xs tabular-nums text-[var(--sc-text-muted)]">
               {displayProgress.toFixed(0)}%
             </span>
           </div>
         )}
       </div>
 
-      <div className="text-sm text-[#71717a]">
+      <div className="text-sm text-[var(--sc-text-secondary)]">
         {shotsCount ?? '--'}
       </div>
 
-      <div className="text-sm text-[#71717a]">
+      <div className="text-sm text-[var(--sc-text-secondary)]">
         {formatUploadTime(task.createdAt)}
       </div>
 
       <div className="min-w-0 text-sm" onClick={(event) => event.stopPropagation()}>
-        <div className="flex items-center gap-3 whitespace-nowrap text-[#d4d4d8]">
+        <div className="flex items-center gap-3 whitespace-nowrap text-[var(--sc-text-primary)]">
           {liveStatus === 'PENDING' && (
             <>
               <button
                 type="button"
                 onClick={() => onProcess(task.id)}
                 disabled={isBusy}
-                className="inline-flex h-7 items-center justify-center rounded-md border border-[#27272a] bg-[#18181b] px-3 text-sm font-medium text-[#d4d4d8] transition-colors hover:border-primary hover:bg-[rgba(47,140,255,0.08)] disabled:cursor-not-allowed disabled:opacity-50"
+                className={actionBtnClass}
               >
                 直接处理
               </button>
@@ -172,7 +185,7 @@ export function TaskListItem({
                 type="button"
                 onClick={() => onStartReview?.(task.id)}
                 disabled={isBusy}
-                className="inline-flex h-7 items-center justify-center rounded-md border border-[#27272a] bg-[#18181b] px-3 text-sm font-medium text-[#d4d4d8] transition-colors hover:border-primary hover:bg-[rgba(47,140,255,0.08)] disabled:cursor-not-allowed disabled:opacity-50"
+                className={actionBtnClass}
               >
                 检测并审核
               </button>
@@ -180,7 +193,7 @@ export function TaskListItem({
                 type="button"
                 onClick={() => onDelete(task.id)}
                 disabled={isBusy}
-                className="inline-flex h-7 items-center justify-center rounded-md border border-[#27272a] bg-[#18181b] px-3 text-sm font-medium text-danger transition-colors hover:border-danger hover:bg-[rgba(239,68,68,0.08)] disabled:cursor-not-allowed disabled:opacity-50"
+                className={dangerBtnClass}
               >
                 删除
               </button>
@@ -192,7 +205,7 @@ export function TaskListItem({
               type="button"
               onClick={() => onDelete(task.id)}
               disabled={isBusy}
-              className="inline-flex h-7 items-center justify-center rounded-md border border-[#27272a] bg-[#18181b] px-3 text-sm font-medium text-danger transition-colors hover:border-danger hover:bg-[rgba(239,68,68,0.08)] disabled:cursor-not-allowed disabled:opacity-50"
+              className={dangerBtnClass}
             >
               删除
             </button>
@@ -204,7 +217,7 @@ export function TaskListItem({
                 type="button"
                 onClick={() => onOpenReview?.(task.id)}
                 disabled={isBusy}
-                className="inline-flex h-7 items-center justify-center rounded-md border border-[#27272a] bg-[#18181b] px-3 text-sm font-medium text-[#d4d4d8] transition-colors hover:border-primary hover:bg-[rgba(47,140,255,0.08)] disabled:cursor-not-allowed disabled:opacity-50"
+                className={actionBtnClass}
               >
                 查看并编辑
               </button>
@@ -212,7 +225,7 @@ export function TaskListItem({
                 type="button"
                 onClick={() => onDelete(task.id)}
                 disabled={isBusy}
-                className="inline-flex h-7 items-center justify-center rounded-md border border-[#27272a] bg-[#18181b] px-3 text-sm font-medium text-danger transition-colors hover:border-danger hover:bg-[rgba(239,68,68,0.08)] disabled:cursor-not-allowed disabled:opacity-50"
+                className={dangerBtnClass}
               >
                 删除
               </button>
@@ -224,7 +237,7 @@ export function TaskListItem({
               type="button"
               onClick={() => onViewResult(task.id)}
               disabled={isBusy}
-              className="inline-flex h-7 items-center justify-center rounded-md border border-[#27272a] bg-[#18181b] px-3 text-sm font-medium text-[#d4d4d8] transition-colors hover:border-primary hover:bg-[rgba(47,140,255,0.08)] disabled:cursor-not-allowed disabled:opacity-50"
+              className={actionBtnClass}
             >
               查看工作台
             </button>
@@ -235,7 +248,7 @@ export function TaskListItem({
               type="button"
               onClick={() => onViewResult(task.id)}
               disabled={isBusy}
-              className="inline-flex h-7 items-center justify-center rounded-md border border-[#27272a] bg-[#18181b] px-3 text-sm font-medium text-[#d4d4d8] transition-colors hover:border-primary hover:bg-[rgba(47,140,255,0.08)] disabled:cursor-not-allowed disabled:opacity-50"
+              className={actionBtnClass}
             >
               查看详情
             </button>
@@ -247,7 +260,7 @@ export function TaskListItem({
                 type="button"
                 onClick={() => onViewResult(task.id)}
                 disabled={isBusy}
-                className="inline-flex h-7 items-center justify-center rounded-md border border-[#27272a] bg-[#18181b] px-3 text-sm font-medium text-[#d4d4d8] transition-colors hover:border-primary hover:bg-[rgba(47,140,255,0.08)] disabled:cursor-not-allowed disabled:opacity-50"
+                className={actionBtnClass}
               >
                 查看详情
               </button>
@@ -255,7 +268,7 @@ export function TaskListItem({
                 type="button"
                 onClick={() => onDelete(task.id)}
                 disabled={isBusy}
-                className="inline-flex h-7 items-center justify-center rounded-md border border-[#27272a] bg-[#18181b] px-3 text-sm font-medium text-danger transition-colors hover:border-danger hover:bg-[rgba(239,68,68,0.08)] disabled:cursor-not-allowed disabled:opacity-50"
+                className={dangerBtnClass}
               >
                 删除
               </button>

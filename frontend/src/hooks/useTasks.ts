@@ -150,16 +150,3 @@ export function useApproveReview() {
     },
   })
 }
-
-/**
- * 完成任务 Hook
- */
-export function useFinalizeTask() {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: (id: string) => taskService.finalizeTask(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['tasks'] })
-    },
-  })
-}

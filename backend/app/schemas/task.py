@@ -14,6 +14,7 @@ class ProcessConfigOverride(BaseModel):
     use_transnet: Optional[bool] = None
     scene_threshold: Optional[float] = None
     min_scene_len_frames: Optional[int] = None
+    min_scene_duration_ms_floor: Optional[int] = None
     downscale: Optional[int] = None
     frame_skip: Optional[int] = None
     adaptive_threshold: Optional[float] = None
@@ -25,11 +26,16 @@ class ProcessConfigOverride(BaseModel):
     weight_lum: Optional[float] = None
     weight_edges: Optional[float] = None
     transnet_threshold: Optional[float] = None
+    transnet_soft_candidate_multiplier: Optional[float] = None
     transnet_tolerance_frames: Optional[int] = None
     transnet_window_size: Optional[int] = None
-    transnet_timeout_sec: Optional[int] = None
     transnet_additional_boundary_threshold: Optional[float] = None
     transnet_only_min_gap_frames: Optional[int] = None
+    use_threshold_detector: Optional[bool] = None
+    threshold_detector_threshold: Optional[float] = None
+    threshold_detector_fade_bias: Optional[float] = None
+    merge_gap_frames: Optional[int] = None
+    split_copy_mode: Optional[bool] = None
 
 
 class ProcessTaskRequest(BaseModel):
@@ -56,6 +62,7 @@ class TaskResponse(BaseModel):
     suspect_segments: Optional[list[dict[str, Any]]] = None
     tuning_history: Optional[list[dict[str, Any]]] = None
     review_notes: Optional[str] = None
+    latest_split_stats: Optional[dict[str, Any]] = None
     detection_result: Optional[dict[str, Any]] = None
     user_edited_scenes: Optional[list[dict[str, Any]]] = None
     reviewed_at: Optional[datetime] = None

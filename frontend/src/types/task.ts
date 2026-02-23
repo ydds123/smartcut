@@ -34,6 +34,7 @@ export interface ProcessingConfig {
   useTransnet: boolean
   sceneThreshold: number
   minSceneLenFrames: number
+  minSceneDurationMsFloor: number
   downscale: number
   frameSkip: number
   adaptiveThreshold: number
@@ -45,11 +46,16 @@ export interface ProcessingConfig {
   weightLum: number
   weightEdges: number
   transnetThreshold: number
+  transnetSoftCandidateMultiplier: number
   transnetToleranceFrames: number
   transnetWindowSize: number
-  transnetTimeoutSec: number
   transnetAdditionalBoundaryThreshold: number
   transnetOnlyMinGapFrames: number
+  useThresholdDetector: boolean
+  thresholdDetectorThreshold: number
+  thresholdDetectorFadebias: number
+  mergeGapFrames: number
+  splitCopyMode: boolean
 }
 
 export interface ProcessTaskOptions {
@@ -81,6 +87,23 @@ export interface SuspectSegment {
   reviewHint?: string
 }
 
+export interface SplitStats {
+  totalScenes: number
+  reusedCount: number
+  renderedCount: number
+  reusedRatio: number
+  incrementalEnabled?: boolean
+  fallbackFullResplit: boolean
+  linkSuccessCount?: number
+  copyFallbackCount?: number
+  planElapsedMs?: number
+  reuseMaterializeElapsedMs?: number
+  renderElapsedMs?: number
+  dbElapsedMs?: number
+  cleanupElapsedMs?: number
+  totalElapsedMs?: number
+}
+
 /**
  * 任务实体
  */
@@ -102,6 +125,7 @@ export interface Task {
   suspectSegments?: SuspectSegment[] | null
   tuningHistory?: Array<Record<string, unknown>> | null
   reviewNotes?: string | null
+  latestSplitStats?: SplitStats | null
   detectionResult?: DetectionResult | null
   userEditedScenes?: ReviewScene[] | null
   reviewedAt?: string | null

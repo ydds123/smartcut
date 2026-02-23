@@ -23,6 +23,7 @@ class Task(Base):
     suspect_segments = Column(Text, nullable=True)
     tuning_history = Column(Text, nullable=True)
     review_notes = Column(Text, nullable=True)
+    split_stats = Column(Text, nullable=True)       # JSON: 最近一次切分统计
     detection_result = Column(Text, nullable=True)   # JSON: 检测结果 [{start_ms, end_ms}, ...]
     user_edited_scenes = Column(Text, nullable=True) # JSON: 用户编辑后的场景列表
     reviewed_at = Column(DateTime, nullable=True)    # 用户确认时间

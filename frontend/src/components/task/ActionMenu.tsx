@@ -23,15 +23,6 @@ export interface ActionMenuProps {
   disabled?: boolean
 }
 
-/**
- * 飞书风格操作菜单
- *
- * 特性：
- * - 三点图标触发
- * - 下拉菜单
- * - 危险操作红色高亮
- * - 分隔线支持
- */
 export function ActionMenu({ menuItems, disabled = false }: ActionMenuProps) {
   const [isOpen, setIsOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -67,10 +58,7 @@ export function ActionMenu({ menuItems, disabled = false }: ActionMenuProps) {
         type="button"
         onClick={() => setIsOpen(!isOpen)}
         disabled={disabled}
-        className={`
-          p-1.5 rounded hover:bg-[#27272a] text-[#71717a] hover:text-[#d4d4d8]
-          transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed
-        `}
+        className="sc-btn sc-btn-ghost h-8 w-8 p-1.5 disabled:cursor-not-allowed disabled:opacity-50"
         aria-label="操作菜单"
       >
         <MoreIcon />
@@ -78,17 +66,14 @@ export function ActionMenu({ menuItems, disabled = false }: ActionMenuProps) {
 
       {isOpen && (
         <div
-          className="
-            absolute right-0 top-full mt-1 w-36 bg-[#18181b] rounded-lg shadow-lg
-            border border-[#27272a] py-1 z-50
-          "
+          className="sc-menu absolute right-0 top-full z-50 mt-1 w-36 rounded-lg py-1"
         >
           {visibleItems.map((item, index) => {
             const Icon = item.icon
 
             if (item.divider) {
               return (
-                <div key={index} className="h-px bg-[#27272a] my-1" />
+                <div key={index} className="my-1 h-px bg-[var(--sc-border-subtle)]" />
               )
             }
 
@@ -98,9 +83,8 @@ export function ActionMenu({ menuItems, disabled = false }: ActionMenuProps) {
                 type="button"
                 onClick={() => handleItemClick(item)}
                 className={`
-                  w-full px-3 py-2 flex items-center gap-2 text-small
-                  hover:bg-[#27272a] transition-colors duration-150
-                  ${item.danger ? 'text-danger hover:bg-danger/10' : 'text-[#d4d4d8]'}
+                  sc-menu-item w-full px-3 py-2 flex items-center gap-2 text-small
+                  ${item.danger ? 'sc-menu-item-danger' : ''}
                 `}
               >
                 <Icon />
