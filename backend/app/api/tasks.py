@@ -1,12 +1,14 @@
 import json
+import logging
 import subprocess
+import time
 import tempfile
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, List
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse, Response
 from redis import Redis
 from rq import Queue
@@ -14,8 +16,14 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.rate_limit import enforce_rate_limit
 from app.models.models import Scene, Task
-from app.schemas.task import ProcessTaskRequest, ProcessTaskResponse, TaskResponse
+from app.schemas.task import (
+    ProcessTaskRequest,
+    ProcessTaskResponse,
+    SaveReviewDataRequest,
+    TaskResponse,
+)
 from app.services.file_service import FileService
 from app.services.quality_tuning import resolve_quality_config
 from app.workers.video_tasks import (
@@ -25,10 +33,57 @@ from app.workers.video_tasks import (
 )
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
-# RQ 队列
-redis_conn = Redis.from_url(settings.REDIS_URL)
-queue = Queue(connection=redis_conn)
+_redis_conn: Redis | None = None
+_queue: Queue | None = None
+
+
+def _get_queue() -> Queue:
+    """懒加载 RQ queue，避免模块导入阶段因 Redis 不可用导致服务崩溃。"""
+    global _redis_conn, _queue
+    if _queue is not None:
+        return _queue
+
+    retry_times = max(1, int(getattr(settings, "REDIS_CONNECT_RETRIES", 3)))
+    retry_delay_sec = max(0.1, float(getattr(settings, "REDIS_RETRY_DELAY_SEC", 0.5)))
+    last_error: Exception | None = None
+
+    for attempt in range(1, retry_times + 1):
+        try:
+            conn = Redis.from_url(
+                settings.REDIS_URL,
+                socket_connect_timeout=2,
+                socket_timeout=5,
+                health_check_interval=30,
+            )
+            conn.ping()
+            _redis_conn = conn
+            _queue = Queue(connection=conn)
+            return _queue
+        except Exception as exc:  # pragma: no cover - depends on runtime redis state
+            last_error = exc
+            _redis_conn = None
+            _queue = None
+            logger.warning(
+                "RQ 连接失败（第 %s/%s 次）: %s",
+                attempt,
+                retry_times,
+                exc,
+            )
+            if attempt < retry_times:
+                time.sleep(retry_delay_sec * attempt)
+
+    raise HTTPException(status_code=503, detail=f"Queue unavailable: {last_error}")
+
+
+def _limit_task_mutation(request: Request) -> None:
+    enforce_rate_limit(
+        request,
+        "task_mutation",
+        max_requests=int(getattr(settings, "RATE_LIMIT_MUTATION_MAX_REQUESTS", 30)),
+        window_sec=int(getattr(settings, "RATE_LIMIT_WINDOW_SEC", 60)),
+    )
 
 
 def _resolve_task_preview(task: Task, db: Session) -> str | None:
@@ -151,8 +206,10 @@ def get_task(task_id: str, db: Session = Depends(get_db)):
 
 
 @router.delete("/tasks/{task_id}")
-def delete_task(task_id: str, db: Session = Depends(get_db)):
+def delete_task(task_id: str, request: Request, db: Session = Depends(get_db)):
     """删除任务及相关文件"""
+    _limit_task_mutation(request)
+
     task = db.query(Task).filter(Task.id == task_id).first()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
@@ -192,10 +249,13 @@ def delete_task(task_id: str, db: Session = Depends(get_db)):
 @router.post("/tasks/{task_id}/process", response_model=ProcessTaskResponse)
 def process_task(
     task_id: str,
-    request: ProcessTaskRequest = Body(default_factory=ProcessTaskRequest),
+    http_request: Request,
+    payload: ProcessTaskRequest = Body(default_factory=ProcessTaskRequest),
     db: Session = Depends(get_db),
 ):
     """开始处理任务（仅支持手动参数模式）。"""
+    _limit_task_mutation(http_request)
+
     task = db.query(Task).filter(Task.id == task_id).first()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
@@ -203,20 +263,20 @@ def process_task(
     if task.status != "PENDING":
         raise HTTPException(status_code=409, detail="Task already processed")
 
-    override_config = _to_dict(request.override_config) if request.override_config else None
+    override_config = _to_dict(payload.override_config) if payload.override_config else None
     try:
         resolved_config, metadata = resolve_quality_config(
             video_path=task.file_path,
-            mode=request.mode,
-            profile=request.profile,
+            mode=payload.mode,
+            profile=payload.profile,
             override_config=override_config,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     task.status = "QUEUED"
-    task.process_mode = request.mode
-    task.config_profile = request.profile
+    task.process_mode = payload.mode
+    task.config_profile = payload.profile
     task.requested_config = _to_json(override_config or {})
     task.resolved_config = _to_json(resolved_config)
     task.quality_flags = None
@@ -231,7 +291,7 @@ def process_task(
     db.commit()
 
     try:
-        job = queue.enqueue(
+        job = _get_queue().enqueue(
             process_video_task,
             task_id,
             task.file_path,
@@ -244,6 +304,10 @@ def process_task(
             "job_id": job.id,
             "resolved_config": resolved_config,
         }
+    except HTTPException:
+        task.status = "PENDING"
+        db.commit()
+        raise
     except Exception as exc:
         task.status = "PENDING"
         db.commit()
@@ -280,37 +344,40 @@ def get_task_result(task_id: str, db: Session = Depends(get_db)):
 @router.post("/tasks/{task_id}/review")
 def start_review(
     task_id: str,
-    request: ProcessTaskRequest = Body(default_factory=ProcessTaskRequest),
+    http_request: Request,
+    payload: ProcessTaskRequest = Body(default_factory=ProcessTaskRequest),
     db: Session = Depends(get_db),
 ):
     """入队场景检测任务（预览确认流程第一步）。"""
+    _limit_task_mutation(http_request)
+
     task = db.query(Task).filter(Task.id == task_id).first()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     if task.status != "PENDING":
         raise HTTPException(status_code=409, detail="Task already processed")
 
-    override_config = _to_dict(request.override_config) if request.override_config else None
+    override_config = _to_dict(payload.override_config) if payload.override_config else None
     try:
         resolved_config, metadata = resolve_quality_config(
             video_path=task.file_path,
-            mode=request.mode,
-            profile=request.profile,
+            mode=payload.mode,
+            profile=payload.profile,
             override_config=override_config,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     task.status = "QUEUED"
-    task.process_mode = request.mode
-    task.config_profile = request.profile
+    task.process_mode = payload.mode
+    task.config_profile = payload.profile
     task.requested_config = _to_json(override_config or {})
     task.resolved_config = _to_json(resolved_config)
     task.split_stats = None
     db.commit()
 
     try:
-        job = queue.enqueue(
+        job = _get_queue().enqueue(
             detect_scenes_for_review,
             task_id,
             task.file_path,
@@ -319,6 +386,10 @@ def start_review(
             result_ttl=3600,
         )
         return {"status": "QUEUED", "job_id": job.id}
+    except HTTPException:
+        task.status = "PENDING"
+        db.commit()
+        raise
     except Exception as exc:
         task.status = "PENDING"
         db.commit()
@@ -347,28 +418,45 @@ def get_review_data(task_id: str, db: Session = Depends(get_db)):
 @router.put("/tasks/{task_id}/review-data")
 def save_review_data(
     task_id: str,
-    body: dict = Body(...),
+    request: Request,
+    body: SaveReviewDataRequest = Body(...),
     db: Session = Depends(get_db),
 ):
     """保存用户编辑后的场景列表。"""
+    _limit_task_mutation(request)
+
     task = db.query(Task).filter(Task.id == task_id).first()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     if task.status not in ("REVIEW_PENDING", "REVIEW_APPROVED", "TIMELINE_READY"):
         raise HTTPException(status_code=409, detail="Cannot edit in current status")
 
-    scenes = body.get("scenes")
-    if not isinstance(scenes, list):
-        raise HTTPException(status_code=400, detail="scenes must be a list")
+    normalized_scenes = [
+        {
+            "start_ms": int(scene.start_ms),
+            "end_ms": int(scene.end_ms),
+        }
+        for scene in body.scenes
+    ]
 
-    task.user_edited_scenes = _to_json(scenes)
+    for index in range(1, len(normalized_scenes)):
+        previous = normalized_scenes[index - 1]
+        current = normalized_scenes[index]
+        if current["start_ms"] < previous["start_ms"]:
+            raise HTTPException(status_code=400, detail="scenes must be sorted by start_ms")
+        if current["start_ms"] < previous["end_ms"]:
+            raise HTTPException(status_code=400, detail=f"scenes overlap at index={index}")
+
+    task.user_edited_scenes = _to_json(normalized_scenes)
     db.commit()
     return {"success": True}
 
 
 @router.post("/tasks/{task_id}/review/reset-from-timeline")
-def reset_review_data_from_timeline(task_id: str, db: Session = Depends(get_db)):
+def reset_review_data_from_timeline(task_id: str, request: Request, db: Session = Depends(get_db)):
     """将审核页草稿重置为当前时间轴切分结果，避免返回编辑时镜头数不一致。"""
+    _limit_task_mutation(request)
+
     task = db.query(Task).filter(Task.id == task_id).first()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
@@ -400,8 +488,10 @@ def reset_review_data_from_timeline(task_id: str, db: Session = Depends(get_db))
 
 
 @router.post("/tasks/{task_id}/approve")
-def approve_review(task_id: str, db: Session = Depends(get_db)):
+def approve_review(task_id: str, request: Request, db: Session = Depends(get_db)):
     """用户确认场景，入队切分任务。"""
+    _limit_task_mutation(request)
+
     task = db.query(Task).filter(Task.id == task_id).first()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
@@ -409,18 +499,22 @@ def approve_review(task_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=409, detail=f"Task cannot be approved in current state (current={task.status})")
 
     task.status = "REVIEW_APPROVED"
-    task.reviewed_at = datetime.utcnow()
+    task.reviewed_at = datetime.now(timezone.utc).replace(tzinfo=None)
     task.split_stats = None
     db.commit()
 
     try:
-        job = queue.enqueue(
+        job = _get_queue().enqueue(
             split_video_after_review,
             task_id,
             job_timeout=600,
             result_ttl=3600,
         )
         return {"status": "REVIEW_APPROVED", "job_id": job.id}
+    except HTTPException:
+        task.status = "REVIEW_PENDING"
+        db.commit()
+        raise
     except Exception as exc:
         task.status = "REVIEW_PENDING"
         db.commit()
@@ -428,8 +522,10 @@ def approve_review(task_id: str, db: Session = Depends(get_db)):
 
 
 @router.post("/tasks/{task_id}/return-to-review")
-def return_to_review(task_id: str, db: Session = Depends(get_db)):
+def return_to_review(task_id: str, request: Request, db: Session = Depends(get_db)):
     """从 TIMELINE_READY 返回到 REVIEW_PENDING，删除已切分文件。"""
+    _limit_task_mutation(request)
+
     task = db.query(Task).filter(Task.id == task_id).first()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")

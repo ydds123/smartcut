@@ -1,8 +1,13 @@
 from sqlalchemy import Column, String, Integer, BigInteger, DateTime, ForeignKey, Text
 from sqlalchemy.ext.declarative import declarative_base
-from datetime import datetime
+from datetime import datetime, timezone
 
 Base = declarative_base()
+
+
+def utc_now_naive() -> datetime:
+    """返回无时区的 UTC 时间，兼容现有 DateTime 列定义。"""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 class Task(Base):
@@ -28,8 +33,8 @@ class Task(Base):
     user_edited_scenes = Column(Text, nullable=True) # JSON: 用户编辑后的场景列表
     reviewed_at = Column(DateTime, nullable=True)    # 用户确认时间
     edit_history = Column(Text, nullable=True)       # JSON: 编辑操作历史
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now_naive)
+    updated_at = Column(DateTime, default=utc_now_naive, onupdate=utc_now_naive)
 
 
 class Scene(Base):
@@ -42,7 +47,7 @@ class Scene(Base):
     end_ms = Column(Integer, nullable=False)
     file_path = Column(String, nullable=True)
     thumbnail_path = Column(String, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now_naive)
 
 
 class ErrorLog(Base):
@@ -53,4 +58,4 @@ class ErrorLog(Base):
     error_type = Column(String)
     error_message = Column(Text)
     stack_trace = Column(Text)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now_naive)

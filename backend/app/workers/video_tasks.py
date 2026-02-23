@@ -8,7 +8,6 @@ import os
 import shutil
 import time
 from collections import defaultdict, deque
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -104,11 +103,31 @@ def _run_full_review_split(
     processor: VideoProcessor,
     scenes: list[tuple[int, int]],
     progress_callback,
-) -> tuple[list[str], list[str | None]]:
+) -> tuple[list[str | None], list[str | None]]:
     result = processor.split_video_from_scenes(scenes, progress_callback=progress_callback)
     output_files = result["output_files"]
     thumbnails = result["thumbnails"]
     return output_files, thumbnails
+
+
+def _collect_successful_scene_results(
+    scenes: list[tuple[int, int]],
+    output_files: list[str | None],
+    thumbnails: list[str | None],
+) -> tuple[list[tuple[int, int, str, str | None]], int]:
+    """汇总成功切分结果（仅保留有输出视频的场景）。"""
+    successful: list[tuple[int, int, str, str | None]] = []
+    failed_split_count = 0
+
+    for index, (start_ms, end_ms) in enumerate(scenes):
+        video_path = output_files[index] if index < len(output_files) else None
+        thumbnail_path = thumbnails[index] if index < len(thumbnails) else None
+        if video_path:
+            successful.append((start_ms, end_ms, video_path, thumbnail_path))
+        else:
+            failed_split_count += 1
+
+    return successful, failed_split_count
 
 
 def process_video_task(
@@ -189,14 +208,14 @@ def process_video_task(
             active_config = next_config
 
         detect_elapsed_sec = round(time.perf_counter() - detect_started_at, 3)
-        scenes_count = len(final_scenes)
+        requested_scenes_count = len(final_scenes)
 
         task = db.query(Task).filter(Task.id == task_id).first()
         if task:
             existing_history = _from_json(task.tuning_history, default=[])
             if not isinstance(existing_history, list):
                 existing_history = []
-            task.total_scenes = scenes_count
+            task.total_scenes = requested_scenes_count
             task.resolved_config = _to_json(active_config)
             detection_flags = dict(final_flags)
             if final_detection_report:
@@ -214,11 +233,6 @@ def process_video_task(
         output_files = processor.split_video(final_scenes, progress_callback=progress_callback)
         split_elapsed_sec = round(time.perf_counter() - split_started_at, 3)
 
-        if len(output_files) != len(final_scenes):
-            raise RuntimeError(
-                f"split outputs mismatch: expected={len(final_scenes)}, actual={len(output_files)}"
-            )
-
         update_progress(50)
         thumb_started_at = time.perf_counter()
         thumbnails = processor.generate_thumbnails_batch(
@@ -228,20 +242,32 @@ def process_video_task(
         )
         thumbnail_elapsed_sec = round(time.perf_counter() - thumb_started_at, 3)
 
-        if len(thumbnails) != len(output_files):
-            raise RuntimeError(
-                f"thumbnail outputs mismatch: expected={len(output_files)}, actual={len(thumbnails)}"
-            )
+        successful_results, failed_split_count = _collect_successful_scene_results(final_scenes, output_files, thumbnails)
+        if not successful_results:
+            raise RuntimeError("all scene splits failed")
 
-        failed_count = sum(1 for thumb in thumbnails if thumb is None)
-        if failed_count > 0:
-            logger.warning("任务 %s: %s/%s 个镜头缩略图生成失败", task_id, failed_count, len(output_files))
+        failed_thumbnail_count = sum(1 for _, _, _, thumb in successful_results if thumb is None)
+        if failed_split_count > 0:
+            logger.warning(
+                "任务 %s: 切分部分失败（成功=%s, 失败=%s, 总计=%s）",
+                task_id,
+                len(successful_results),
+                failed_split_count,
+                len(final_scenes),
+            )
+        if failed_thumbnail_count > 0:
+            logger.warning(
+                "任务 %s: %s/%s 个已成功切片的缩略图生成失败",
+                task_id,
+                failed_thumbnail_count,
+                len(successful_results),
+            )
 
         db_started_at = time.perf_counter()
         db.query(Scene).filter(Scene.task_id == task_id).delete()
 
         scene_rows: list[Scene] = []
-        for index, (start_ms, end_ms) in enumerate(final_scenes):
+        for index, (start_ms, end_ms, file_path, thumbnail_path) in enumerate(successful_results):
             scene_rows.append(
                 Scene(
                     id=f"{task_id}_scene_{index}",
@@ -249,17 +275,22 @@ def process_video_task(
                     sequence_index=index,
                     start_ms=start_ms,
                     end_ms=end_ms,
-                    file_path=output_files[index] if index < len(output_files) else None,
-                    thumbnail_path=thumbnails[index] if index < len(thumbnails) else None,
+                    file_path=file_path,
+                    thumbnail_path=thumbnail_path,
                 )
             )
         if scene_rows:
             db.bulk_save_objects(scene_rows)
 
+        scenes_count = len(successful_results)
         metrics = {
             "detect_and_quality_sec": detect_elapsed_sec,
             "split_sec": split_elapsed_sec,
             "thumbnail_sec": thumbnail_elapsed_sec,
+            "requested_scenes": requested_scenes_count,
+            "successful_scenes": scenes_count,
+            "failed_split_scenes": failed_split_count,
+            "failed_thumbnail_scenes": failed_thumbnail_count,
             "db_persist_sec": round(time.perf_counter() - db_started_at, 3),
             "total_sec": round(time.perf_counter() - total_started_at, 3),
         }
@@ -458,7 +489,7 @@ def split_video_after_review(task_id: str) -> dict:
         rendered_count = len(scenes)
         link_success_count = 0
         copy_fallback_count = 0
-        output_files: list[str] = []
+        output_files: list[str | None] = []
         thumbnails: list[str | None] = []
 
         def progress_callback(p: int):
@@ -480,7 +511,7 @@ def split_video_after_review(task_id: str) -> dict:
 
             if reused_count > 0 and rendered_count < len(scenes):
                 try:
-                    output_files = ["" for _ in scenes]
+                    output_files = [None for _ in scenes]
                     thumbnails = [None for _ in scenes]
 
                     materialize_started_at = time.perf_counter()
@@ -522,25 +553,11 @@ def split_video_after_review(task_id: str) -> dict:
                         partial_outputs = partial_result["output_files"]
                         partial_thumbs = partial_result["thumbnails"]
 
-                        if len(partial_outputs) != len(render_scenes):
-                            raise RuntimeError(
-                                "incremental split outputs mismatch: "
-                                f"expected={len(render_scenes)}, actual={len(partial_outputs)}"
-                            )
-                        if len(partial_thumbs) != len(partial_outputs):
-                            raise RuntimeError(
-                                "incremental thumbnail outputs mismatch: "
-                                f"expected={len(partial_outputs)}, actual={len(partial_thumbs)}"
-                            )
-
                         for pos, target_index in enumerate(render_indices):
                             output_files[target_index] = partial_outputs[pos]
                             thumbnails[target_index] = partial_thumbs[pos]
                     else:
                         update_progress(90)
-
-                    if any(not path for path in output_files):
-                        raise RuntimeError("incremental split result has empty output file path")
                 except Exception as incremental_exc:
                     fallback_full_resplit = True
                     reused_count = 0
@@ -578,13 +595,19 @@ def split_video_after_review(task_id: str) -> dict:
             )
             render_elapsed_ms = round((time.perf_counter() - render_started_at) * 1000, 2)
 
-        if len(output_files) != len(scenes):
-            raise RuntimeError(
-                f"split outputs mismatch: expected={len(scenes)}, actual={len(output_files)}"
-            )
-        if len(thumbnails) != len(output_files):
-            raise RuntimeError(
-                f"thumbnail outputs mismatch: expected={len(output_files)}, actual={len(thumbnails)}"
+        successful_results, failed_split_count = _collect_successful_scene_results(scenes, output_files, thumbnails)
+        if not successful_results:
+            raise RuntimeError("all review scenes failed to split")
+        failed_thumbnail_count = sum(1 for _, _, _, thumb in successful_results if thumb is None)
+        successful_count = len(successful_results)
+
+        if failed_split_count > 0:
+            logger.warning(
+                "任务 %s 切分部分失败（成功=%s, 失败=%s, 总计=%s）",
+                task_id,
+                successful_count,
+                failed_split_count,
+                len(scenes),
             )
 
         db_started_at = time.perf_counter()
@@ -596,10 +619,10 @@ def split_video_after_review(task_id: str) -> dict:
                 sequence_index=i,
                 start_ms=start_ms,
                 end_ms=end_ms,
-                file_path=output_files[i] if i < len(output_files) else None,
-                thumbnail_path=thumbnails[i] if i < len(thumbnails) else None,
+                file_path=file_path,
+                thumbnail_path=thumbnail_path,
             )
-            for i, (start_ms, end_ms) in enumerate(scenes)
+            for i, (start_ms, end_ms, file_path, thumbnail_path) in enumerate(successful_results)
         ]
         if scene_rows:
             db.bulk_save_objects(scene_rows)
@@ -607,10 +630,10 @@ def split_video_after_review(task_id: str) -> dict:
         if task_ref:
             task_ref.status = "TIMELINE_READY"
             task_ref.progress = 100
-            task_ref.total_scenes = len(scenes)
+            task_ref.total_scenes = successful_count
             # 以本轮实际切分结果回写审核草稿，确保返回编辑与工作台镜头数一致。
             task_ref.user_edited_scenes = _to_json(
-                [{"start_ms": start_ms, "end_ms": end_ms} for start_ms, end_ms in scenes]
+                [{"start_ms": start_ms, "end_ms": end_ms} for start_ms, end_ms, _, _ in successful_results]
             )
         db.commit()
         db_elapsed_ms = round((time.perf_counter() - db_started_at) * 1000, 2)
@@ -627,10 +650,13 @@ def split_video_after_review(task_id: str) -> dict:
 
         reused_ratio = round(reused_count / max(1, len(scenes)), 4)
         split_stats = {
-            "total_scenes": len(scenes),
+            "total_scenes": successful_count,
+            "requested_scenes": len(scenes),
             "reused_count": reused_count,
             "rendered_count": rendered_count,
             "reused_ratio": reused_ratio,
+            "failed_split_count": failed_split_count,
+            "failed_thumbnail_count": failed_thumbnail_count,
             "incremental_enabled": incremental_enabled,
             "fallback_full_resplit": fallback_full_resplit,
             "link_success_count": link_success_count,
@@ -653,7 +679,7 @@ def split_video_after_review(task_id: str) -> dict:
             task_id,
             _to_json(split_stats),
         )
-        return {"success": True, "scenes_count": len(scenes), "split_stats": split_stats}
+        return {"success": True, "scenes_count": successful_count, "split_stats": split_stats}
 
     except Exception as exc:
         logger.exception("任务 %s 切分异常", task_id)

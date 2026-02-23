@@ -3,7 +3,11 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from app.models.models import Scene
-from app.workers.video_tasks import _build_incremental_plan, _materialize_file
+from app.workers.video_tasks import (
+    _build_incremental_plan,
+    _collect_successful_scene_results,
+    _materialize_file,
+)
 
 
 def _scene_row(
@@ -82,6 +86,18 @@ class TestIncrementalSplit(unittest.TestCase):
 
             self.assertTrue(dst.exists())
             self.assertEqual(dst.read_bytes(), b"abc123")
+
+    def test_collect_successful_scene_results_filters_failed_items(self):
+        scenes = [(0, 1000), (1000, 2200), (2200, 3000)]
+        output_files = ["scene_000.mp4", None, "scene_002.mp4"]
+        thumbnails = ["scene_000_thumb.jpg", None, None]
+
+        successful, failed_count = _collect_successful_scene_results(scenes, output_files, thumbnails)
+
+        self.assertEqual(failed_count, 1)
+        self.assertEqual(len(successful), 2)
+        self.assertEqual(successful[0][0:3], (0, 1000, "scene_000.mp4"))
+        self.assertEqual(successful[1][0:3], (2200, 3000, "scene_002.mp4"))
 
 
 if __name__ == "__main__":

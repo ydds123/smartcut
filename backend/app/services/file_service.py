@@ -5,6 +5,7 @@ import logging
 import re
 from pathlib import Path
 from typing import Optional
+from urllib.parse import quote
 from fastapi import UploadFile
 from app.core.config import settings
 
@@ -12,6 +13,20 @@ logger = logging.getLogger(__name__)
 
 
 class FileService:
+    _VALID_MIME_TYPES = {
+        "video/mp4",
+        "video/quicktime",
+        "video/x-msvideo",
+        "video/x-matroska",
+    }
+
+    _VIDEO_SIGNATURE_MIME_MAP = {
+        "mp4": {"video/mp4", "video/quicktime"},
+        "mov": {"video/mp4", "video/quicktime"},
+        "avi": {"video/x-msvideo"},
+        "mkv": {"video/x-matroska"},
+    }
+
     @staticmethod
     def _sanitize_filename(filename: str | None) -> str:
         """规范化上传文件名，避免路径穿越与非法字符。"""
@@ -55,6 +70,21 @@ class FileService:
             counter += 1
 
     @staticmethod
+    def _append_data_access_token_if_needed(path_value: str) -> str:
+        """当 /data 受保护时，为资源 URL 附加 api_token（用于 img/video 直连）。"""
+        if not path_value.startswith("/data/"):
+            return path_value
+        if not settings.API_AUTH_ENABLED or settings.DATA_PUBLIC_ACCESS:
+            return path_value
+
+        token = (settings.API_AUTH_TOKEN or "").strip()
+        if not token:
+            return path_value
+
+        separator = "&" if "?" in path_value else "?"
+        return f"{path_value}{separator}api_token={quote(token, safe='')}"
+
+    @staticmethod
     def to_public_data_path(path_value: str | None) -> str | None:
         """将本地文件路径转换为可访问的 /data 静态路径。"""
         if not path_value:
@@ -65,31 +95,70 @@ class FileService:
             return None
 
         if normalized.startswith("/data/"):
-            return normalized
+            return FileService._append_data_access_token_if_needed(normalized)
 
         if normalized.startswith("./"):
             normalized = normalized[2:]
         if normalized.startswith("data/"):
-            return f"/{normalized}"
+            return FileService._append_data_access_token_if_needed(f"/{normalized}")
 
         parts = [part for part in Path(normalized).parts if part]
         if "data" in parts:
             rel_parts = parts[parts.index("data") + 1:]
             if rel_parts:
-                return f"/data/{'/'.join(rel_parts)}"
+                return FileService._append_data_access_token_if_needed(f"/data/{'/'.join(rel_parts)}")
 
-        return normalized
+        return FileService._append_data_access_token_if_needed(normalized)
 
     @staticmethod
-    def validate_video_type(file: UploadFile) -> bool:
-        """验证文件类型是否为视频"""
-        valid_mime_types = [
-            "video/mp4",
-            "video/quicktime",
-            "video/x-msvideo",
-            "video/x-matroska"
-        ]
-        return file.content_type in valid_mime_types
+    def _detect_video_container(header: bytes) -> str | None:
+        """基于 magic bytes 检测视频容器类型。"""
+        if len(header) >= 12 and header[4:8] == b"ftyp":
+            major_brand = header[8:12]
+            if major_brand == b"qt  ":
+                return "mov"
+            return "mp4"
+        if len(header) >= 12 and header[:4] == b"RIFF" and header[8:12] == b"AVI ":
+            return "avi"
+        if header.startswith(b"\x1A\x45\xDF\xA3"):
+            return "mkv"
+        return None
+
+    @classmethod
+    async def validate_video_type(cls, file: UploadFile) -> bool:
+        """
+        验证上传文件是否为受支持的视频类型。
+
+        规则：
+        1. content_type 必须在允许列表（允许空或 octet-stream）；
+        2. 文件头必须匹配受支持容器的 magic bytes；
+        3. 若声明了具体 MIME，需与检测到的容器兼容。
+        """
+        declared_mime = (file.content_type or "").strip().lower()
+        if declared_mime and declared_mime not in cls._VALID_MIME_TYPES and declared_mime != "application/octet-stream":
+            return False
+
+        try:
+            current_pos = file.file.tell()
+        except Exception:
+            current_pos = 0
+
+        try:
+            await file.seek(0)
+            header = await file.read(512)
+        finally:
+            await file.seek(current_pos)
+
+        detected_container = cls._detect_video_container(header)
+        if detected_container is None:
+            return False
+
+        if declared_mime and declared_mime != "application/octet-stream":
+            compatible_mimes = cls._VIDEO_SIGNATURE_MIME_MAP.get(detected_container, set())
+            if declared_mime not in compatible_mimes:
+                return False
+
+        return True
 
     @staticmethod
     async def save_upload(file: UploadFile, task_id: str) -> str:

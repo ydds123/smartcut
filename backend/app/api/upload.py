@@ -1,8 +1,10 @@
-from fastapi import APIRouter, UploadFile, File, HTTPException, Form, Depends
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 from pathlib import Path
+from app.core.config import settings
 from app.core.database import get_db
+from app.core.rate_limit import enforce_rate_limit
 from app.models.models import Task
 from app.services.file_service import FileService
 import uuid
@@ -12,13 +14,21 @@ router = APIRouter()
 
 @router.post("/upload")
 async def upload_video(
+    request: Request,
     file: UploadFile = File(...),
     displayName: str = Form(None),
     db: Session = Depends(get_db)
 ):
     """上传视频文件并创建任务"""
+    enforce_rate_limit(
+        request,
+        "upload",
+        max_requests=int(getattr(settings, "RATE_LIMIT_UPLOAD_MAX_REQUESTS", 8)),
+        window_sec=int(getattr(settings, "RATE_LIMIT_WINDOW_SEC", 60)),
+    )
+
     # 文件校验
-    if not FileService.validate_video_type(file):
+    if not await FileService.validate_video_type(file):
         raise HTTPException(status_code=400, detail="Invalid file type")
 
     # 生成任务 ID
