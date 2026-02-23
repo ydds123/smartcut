@@ -158,10 +158,38 @@ REDIS_URL=redis://localhost:6379/0
 UPLOAD_DIR=./data/uploads
 TASK_DIR=./data/tasks
 MAX_UPLOAD_SIZE=524288000  # 500MB
+FFMPEG_PROCESS_TIMEOUT_SEC=600
+FFPROBE_TIMEOUT_SEC=30
+
+# 可选：API token 认证（默认关闭）
+API_AUTH_ENABLED=false
+API_AUTH_TOKEN=
+
+# 可选：/data 资源是否公开（默认公开）
+DATA_PUBLIC_ACCESS=true
+
+# 可选：轻量限流（默认关闭，单进程内存计数）
+RATE_LIMIT_ENABLED=false
+RATE_LIMIT_WINDOW_SEC=60
+RATE_LIMIT_MUTATION_MAX_REQUESTS=30
+RATE_LIMIT_UPLOAD_MAX_REQUESTS=8
 
 # Frontend
 VITE_API_URL=http://127.0.0.1:8000
 VITE_SSE_URL=http://127.0.0.1:8000
+VITE_API_TOKEN=
+```
+
+### 认证与访问控制示例
+
+```bash
+# 开启后端认证 + 关闭 /data 公共访问
+API_AUTH_ENABLED=true
+API_AUTH_TOKEN=change_me
+DATA_PUBLIC_ACCESS=false
+
+# 前端配置同一 token（API + SSE）
+VITE_API_TOKEN=change_me
 ```
 
 ## 核心决策
