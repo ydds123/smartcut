@@ -13,12 +13,35 @@ import threading
 import re
 
 from app.core.config import settings
+from app.core.telemetry import increment_counter, log_event
 from app.services.quality_tuning import DEFAULT_QUALITY_CONFIG
 
 logger = logging.getLogger(__name__)
 
 # 延迟导入 TransNetV2（仅在需要时）
 _transnet_detector = None
+
+
+def _terminate_subprocess(process: subprocess.Popen, wait_timeout_sec: int = 5) -> None:
+    """终止并回收子进程，避免遗留僵尸进程与 pipe 句柄泄漏。"""
+    try:
+        if process.poll() is None:
+            process.kill()
+    except Exception:
+        logger.debug("failed to kill subprocess", exc_info=True)
+
+    try:
+        process.wait(timeout=wait_timeout_sec)
+    except Exception:
+        logger.debug("failed to wait subprocess termination", exc_info=True)
+
+    for stream in (process.stdout, process.stderr):
+        if stream is None:
+            continue
+        try:
+            stream.close()
+        except Exception:
+            logger.debug("failed to close subprocess stream", exc_info=True)
 
 
 class FFmpegProgressMonitor:
@@ -169,14 +192,17 @@ class VideoProcessor:
             except FileExistsError:
                 counter += 1
 
-    def detect_scenes_only(self) -> dict:
+    def detect_scenes_only(
+        self,
+        progress_callback: Optional[Callable[[int], None]] = None,
+    ) -> dict:
         """
         仅执行场景检测，不切分视频。用于预览确认流程。
 
         Returns:
             dict: {scenes: [(start_ms, end_ms)], duration_ms: int, report: dict}
         """
-        scenes = self.detect_scenes()
+        scenes = self.detect_scenes(progress_callback=progress_callback)
         duration_ms = self._get_video_duration_ms()
         return {
             "scenes": scenes,
@@ -209,7 +235,10 @@ class VideoProcessor:
         )
         return {"output_files": output_files, "thumbnails": thumbnails}
 
-    def detect_scenes(self) -> List[Tuple[int, int]]:
+    def detect_scenes(
+        self,
+        progress_callback: Optional[Callable[[int], None]] = None,
+    ) -> List[Tuple[int, int]]:
         """
         使用 PySceneDetect 检测场景切换点
         集成 TransNetV2 深度学习验证（如果启用）
@@ -219,10 +248,19 @@ class VideoProcessor:
         """
         logger.info(f"Task {self.task_id}: 开始场景检测")
 
+        def emit_detection_progress(value: int) -> None:
+            if progress_callback is None:
+                return
+            try:
+                progress_callback(max(0, min(99, int(value))))
+            except Exception as exc:  # pragma: no cover - 仅用于保护主流程
+                logger.debug("Task %s: 检测进度回调失败 - %s", self.task_id, exc)
+
         # 检测模式：fast（仅 PySceneDetect）或 precision（PySceneDetect + TransNetV2）
         detection_mode = self.processing_config.get("detection_mode", "fast")
         use_transnet = bool(self.processing_config.get("use_transnet", False))
         start_time = time.perf_counter()
+        emit_detection_progress(5)
 
         # Stage 1: PySceneDetect 获取候选场景
         pyscene_scenes = self._detect_with_pyscene()
@@ -236,6 +274,7 @@ class VideoProcessor:
             else float(self.processing_config.get("scene_threshold", 27.0))
         )
         stats_summary = self._read_stats_summary(stats_threshold, detector_type=detector_type)
+        emit_detection_progress(35)
 
         report: dict[str, Any] = {
             "fusion_mode": "pyscene_only",
@@ -257,11 +296,19 @@ class VideoProcessor:
 
         # Stage 2: TransNetV2 验证（仅 precision 模式且启用时）
         if detection_mode == "precision" and use_transnet:
-            final_scenes, merge_report = self._merge_with_transnet(pyscene_scenes)
+            emit_detection_progress(55)
+            final_scenes, merge_report = self._merge_with_transnet(
+                pyscene_scenes,
+                progress_callback=lambda stage_progress: emit_detection_progress(
+                    55 + int(max(0, min(100, stage_progress)) * 0.25)
+                ),
+            )
             report.update(merge_report)
+            emit_detection_progress(80)
         else:
             final_scenes = pyscene_scenes
             logger.info(f"Task {self.task_id}: 使用快速模式（{detection_mode}），TransNetV2 已跳过")
+            emit_detection_progress(80)
 
         fps = self._get_video_fps()
         min_scene_len_frames = int(self.processing_config.get("min_scene_len_frames", 15))
@@ -288,6 +335,7 @@ class VideoProcessor:
         report["final_scene_count"] = len(final_scenes)
         report["fusion_elapsed_sec"] = round(time.perf_counter() - start_time, 3)
         self.last_detection_report = report
+        emit_detection_progress(95)
         return final_scenes
 
     def _detect_with_pyscene(self) -> List[Tuple[int, int]]:
@@ -301,7 +349,7 @@ class VideoProcessor:
         detector = "adaptive" if self.processing_config.get("detector") == "adaptive" else "content"
         threshold = float(self.processing_config.get("scene_threshold", 27.0))
         min_scene_len_frames = int(self.processing_config.get("min_scene_len_frames", 15))
-        downscale = int(self.processing_config.get("downscale", 1))
+        downscale = int(self.processing_config.get("downscale", 0))
         frame_skip = int(self.processing_config.get("frame_skip", 0))
         weight_hue = float(self.processing_config.get("weight_hue", 1.0))
         weight_sat = float(self.processing_config.get("weight_sat", 1.0))
@@ -309,13 +357,24 @@ class VideoProcessor:
         weight_edges = float(self.processing_config.get("weight_edges", 0.0))
 
         stats_file = self.task_dir / "scenes.stats.csv"
-        cmd = ["scenedetect", "-i", self.video_path, "--stats", str(stats_file)]
-        if downscale > 1:
+        use_stats_file = frame_skip <= 0
+        cmd = ["scenedetect", "-i", self.video_path]
+        if use_stats_file:
+            cmd.extend(["--stats", str(stats_file)])
+            if stats_file.exists():
+                logger.info(f"Task {self.task_id}: stats 文件已存在，PySceneDetect 将复用帧缓存")
+        elif stats_file.exists():
+            # Avoid accidentally reading stale stats generated from previous runs.
+            try:
+                stats_file.unlink(missing_ok=True)
+            except OSError:
+                logger.debug("Task %s: 清理旧 stats 文件失败（可忽略）", self.task_id)
+            logger.info("Task %s: frame_skip > 0，已禁用 stats 文件输出", self.task_id)
+
+        if downscale >= 1:
             cmd.extend(["--downscale", str(downscale)])
         if frame_skip > 0:
             cmd.extend(["--frame-skip", str(frame_skip)])
-        if stats_file.exists():
-            logger.info(f"Task {self.task_id}: stats 文件已存在，PySceneDetect 将复用帧缓存")
 
         if detector == "adaptive":
             adaptive_threshold = float(self.processing_config.get("adaptive_threshold", 3.0))
@@ -394,13 +453,13 @@ class VideoProcessor:
                 "scenedetect",
                 "-i",
                 self.video_path,
-                "--stats",
-                str(stats_file),
                 "detect-content",
                 "list-scenes",
                 "-f",
                 str(self.task_dir / "scenes.csv"),
             ]
+            if use_stats_file:
+                fallback_cmd[3:3] = ["--stats", str(stats_file)]
             try:
                 subprocess.run(
                     fallback_cmd,
@@ -563,12 +622,21 @@ class VideoProcessor:
 
     def _merge_with_transnet(
         self,
-        pyscene_scenes: List[Tuple[int, int]]
+        pyscene_scenes: List[Tuple[int, int]],
+        progress_callback: Optional[Callable[[int], None]] = None,
     ) -> Tuple[List[Tuple[int, int]], Dict[str, Any]]:
         """
         与 TransNetV2 结果融合（Stage 2）。
         融合策略：候选验证 + 高置信补边 + 最小间隔去抖。
         """
+        def emit_merge_progress(value: int) -> None:
+            if progress_callback is None:
+                return
+            try:
+                progress_callback(max(0, min(100, int(value))))
+            except Exception as exc:  # pragma: no cover - 仅用于保护主流程
+                logger.debug("Task %s: TransNet 融合进度回调失败 - %s", self.task_id, exc)
+
         report: dict[str, Any] = {
             "fusion_mode": "pyscene+transnet",
             "transnet_applied": False,
@@ -578,6 +646,7 @@ class VideoProcessor:
             "added_boundary_count": 0,
             "transnet_elapsed_sec": 0.0,
         }
+        emit_merge_progress(2)
 
         detector = self._get_transnet_detector()
         if detector is None:
@@ -586,6 +655,7 @@ class VideoProcessor:
             report["fusion_mode"] = "pyscene_only"
             report["fallback_reason"] = fallback_reason
             report["retained_boundary_count"] = len(self._scenes_to_cut_frames(pyscene_scenes))
+            emit_merge_progress(100)
             return pyscene_scenes, report
 
         if not detector.is_available():
@@ -594,9 +664,11 @@ class VideoProcessor:
             report["fusion_mode"] = "pyscene_only"
             report["fallback_reason"] = fallback_reason
             report["retained_boundary_count"] = len(self._scenes_to_cut_frames(pyscene_scenes))
+            emit_merge_progress(100)
             return pyscene_scenes, report
 
         try:
+            emit_merge_progress(10)
             fps = self._get_video_fps()
             if fps <= 0:
                 fallback_reason = "invalid_fps"
@@ -604,6 +676,7 @@ class VideoProcessor:
                 report["fusion_mode"] = "pyscene_only"
                 report["fallback_reason"] = fallback_reason
                 report["retained_boundary_count"] = len(self._scenes_to_cut_frames(pyscene_scenes))
+                emit_merge_progress(100)
                 return pyscene_scenes, report
 
             duration_ms = self._get_video_duration_ms()
@@ -613,19 +686,23 @@ class VideoProcessor:
                 report["fusion_mode"] = "pyscene_only"
                 report["fallback_reason"] = fallback_reason
                 report["retained_boundary_count"] = len(self._scenes_to_cut_frames(pyscene_scenes))
+                emit_merge_progress(100)
                 return pyscene_scenes, report
 
             candidate_frames = self._scenes_to_cut_frames(pyscene_scenes, fps=fps)
+            emit_merge_progress(18)
             transnet_start = time.perf_counter()
             transnet_boundaries = detector.detect_boundaries(self.video_path)
             report["transnet_elapsed_sec"] = round(time.perf_counter() - transnet_start, 3)
             report["transnet_peak_count"] = len(transnet_boundaries)
+            emit_merge_progress(52)
             if not transnet_boundaries and candidate_frames:
                 fallback_reason = "transnet_no_boundaries"
                 logger.warning(f"Task {self.task_id}: TransNet 未输出边界，回退 PySceneDetect")
                 report["fusion_mode"] = "pyscene_only"
                 report["fallback_reason"] = fallback_reason
                 report["retained_boundary_count"] = len(candidate_frames)
+                emit_merge_progress(100)
                 return pyscene_scenes, report
 
             tolerance_frames = int(self.processing_config.get("transnet_tolerance_frames", 12))
@@ -648,6 +725,7 @@ class VideoProcessor:
             candidate_scores = detector.score_candidates(self.video_path, candidate_frames)
             report["soft_candidate_multiplier"] = round(soft_candidate_multiplier, 2)
             report["soft_candidate_threshold"] = soft_candidate_threshold
+            emit_merge_progress(78)
 
             retained_frames: list[int] = []
             boundary_scores: dict[int, float] = {}
@@ -693,6 +771,7 @@ class VideoProcessor:
                 report["fusion_mode"] = "pyscene_only"
                 report["fallback_reason"] = fallback_reason
                 report["retained_boundary_count"] = len(candidate_frames)
+                emit_merge_progress(100)
                 return pyscene_scenes, report
             final_scenes = self._cut_frames_to_scenes(merged_frames, duration_ms, fps)
 
@@ -702,12 +781,14 @@ class VideoProcessor:
                 report["fusion_mode"] = "pyscene_only"
                 report["fallback_reason"] = fallback_reason
                 report["retained_boundary_count"] = len(candidate_frames)
+                emit_merge_progress(100)
                 return pyscene_scenes, report
 
             report["transnet_applied"] = True
             report["retained_boundary_count"] = len(retained_frames)
             report["added_boundary_count"] = len(added_frames)
             report["soft_retained_boundary_count"] = soft_retained_count
+            emit_merge_progress(100)
             logger.info(
                 "Task %s: TransNetV2 融合完成，候选=%s 保留=%s 补边=%s 最终镜头=%s",
                 self.task_id,
@@ -723,6 +804,7 @@ class VideoProcessor:
             report["fusion_mode"] = "pyscene_only"
             report["fallback_reason"] = f"transnet_exception:{e}"
             report["retained_boundary_count"] = len(self._scenes_to_cut_frames(pyscene_scenes))
+            emit_merge_progress(100)
             return pyscene_scenes, report
 
     @staticmethod
@@ -1037,9 +1119,19 @@ class VideoProcessor:
                 try:
                     return_code = process.wait(timeout=ffmpeg_timeout_sec)
                 except subprocess.TimeoutExpired:
-                    process.kill()
                     monitor.stop()
                     monitor_thread.join(timeout=1)
+                    _terminate_subprocess(process)
+                    increment_counter("ffmpeg_timeout_total")
+                    log_event(
+                        logger,
+                        logging.WARNING,
+                        "ffmpeg_timeout",
+                        task_id=self.task_id,
+                        stage="split_scene",
+                        scene_index=i,
+                        timeout_sec=ffmpeg_timeout_sec,
+                    )
                     logger.error(
                         "Task %s: 场景 %s 切分超时（>%ss），已终止 FFmpeg 进程",
                         self.task_id,
@@ -1065,10 +1157,12 @@ class VideoProcessor:
                         return_code,
                         (stderr_output or "").strip()[-500:],
                     )
+                    _terminate_subprocess(process, wait_timeout_sec=1)
                     continue
 
                 if not output_file.exists() or output_file.stat().st_size <= 0:
                     logger.error(f"Task {self.task_id}: 场景 {i} 切分失败，输出文件为空或不存在")
+                    _terminate_subprocess(process, wait_timeout_sec=1)
                     continue
 
                 # copy 模式异常输出检测（文件过小视为失败，回退重编码）
@@ -1079,23 +1173,30 @@ class VideoProcessor:
                         "-i", self.video_path,
                         "-ss", start_time,
                         "-t", str(duration_sec),
-                        "-progress", "pipe:2",
-                        "-v", "quiet",
                         "-c:v", "libx264",
                         "-c:a", "aac",
                         "-y",
                         str(output_file)
                     ]
-                    fallback_proc = subprocess.Popen(
-                        fallback_cmd,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE,
-                        universal_newlines=True,
-                    )
                     try:
-                        fallback_code = fallback_proc.wait(timeout=ffmpeg_timeout_sec)
+                        fallback_result = subprocess.run(
+                            fallback_cmd,
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                            timeout=ffmpeg_timeout_sec,
+                            check=False,
+                        )
                     except subprocess.TimeoutExpired:
-                        fallback_proc.kill()
+                        increment_counter("ffmpeg_timeout_total")
+                        log_event(
+                            logger,
+                            logging.WARNING,
+                            "ffmpeg_timeout",
+                            task_id=self.task_id,
+                            stage="split_scene_fallback",
+                            scene_index=i,
+                            timeout_sec=ffmpeg_timeout_sec,
+                        )
                         logger.error(
                             "Task %s: 场景 %s 回退重编码超时（>%ss）",
                             self.task_id,
@@ -1103,13 +1204,19 @@ class VideoProcessor:
                             ffmpeg_timeout_sec,
                         )
                         continue
-                    if fallback_code != 0:
-                        logger.error("Task %s: 场景 %s 回退重编码失败（returncode=%s）", self.task_id, i, fallback_code)
+                    if fallback_result.returncode != 0:
+                        logger.error(
+                            "Task %s: 场景 %s 回退重编码失败（returncode=%s）",
+                            self.task_id,
+                            i,
+                            fallback_result.returncode,
+                        )
                         continue
                     if not output_file.exists() or output_file.stat().st_size <= 0:
                         logger.error(f"Task {self.task_id}: 场景 {i} 回退重编码也失败")
                         continue
 
+                _terminate_subprocess(process, wait_timeout_sec=1)
                 output_files[i] = str(output_file)
                 logger.info(f"Task {self.task_id}: 场景 {i} 切分完成")
 
@@ -1119,8 +1226,8 @@ class VideoProcessor:
                 # 继续处理其他场景
                 continue
             except Exception as e:
-                if process and process.poll() is None:
-                    process.kill()
+                if process:
+                    _terminate_subprocess(process)
                 logger.error(f"Task {self.task_id}: 场景 {i} 处理异常 - {str(e)}")
                 monitor.stop()
                 continue
@@ -1258,6 +1365,17 @@ class VideoProcessor:
                     logger.warning(f"缩略图文件为空: {output_file}")
 
             except subprocess.TimeoutExpired:
+                increment_counter("ffmpeg_timeout_total")
+                log_event(
+                    logger,
+                    logging.WARNING,
+                    "ffmpeg_timeout",
+                    task_id=self.task_id,
+                    stage="thumbnail",
+                    scene_index=scene_index,
+                    timeout_sec=timeout,
+                    retry_attempt=attempt + 1,
+                )
                 logger.warning(f"生成缩略图超时 (> {timeout}s): {output_file} (尝试 {attempt + 1}/{max_retries})")
             except subprocess.CalledProcessError as e:
                 stderr_msg = e.stderr.decode() if e.stderr else 'Unknown error'

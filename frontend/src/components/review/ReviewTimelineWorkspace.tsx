@@ -40,8 +40,14 @@ interface SceneFrameDescriptor {
 
 type TimelinePointerSource = 'content' | 'ruler'
 
+interface LocatePlayheadOptions {
+  behavior?: ScrollBehavior
+  centerBiasPx?: number
+}
+
 export interface ReviewTimelineWorkspaceHandle {
   prepareExternalZoomAnchorByMs: (ms: number) => void
+  locatePlayheadInViewport: (options?: LocatePlayheadOptions) => boolean
 }
 
 const DEFAULT_ZOOM_STEP_FACTOR = 1.08
@@ -57,8 +63,12 @@ const MAX_PREFETCH_TIMES = 320
 const THUMB_PREFETCH_CONCURRENCY = 6
 const THUMB_CACHE_LIMIT = 2000
 const PREFETCH_BUFFER_VIEWPORTS = 1
+const RULER_HEIGHT_PX = 32
 const TIME_TAG_WIDTH_ESTIMATE = 72
 const TIME_TAG_HORIZONTAL_PADDING = 8
+const TIME_TAG_MARGIN_FROM_RULER_PX = 4
+const TIME_TAG_TOP_OFFSET_PX = RULER_HEIGHT_PX + TIME_TAG_MARGIN_FROM_RULER_PX
+const SMOOTH_SCROLL_LOCK_MS = 360
 
 const toFrameKey = (ms: number) => Math.max(0, Math.floor(ms / FRAME_KEY_GRANULARITY_MS) * FRAME_KEY_GRANULARITY_MS)
 
@@ -130,6 +140,7 @@ function ReviewTimelineWorkspace({
   const thumbUsageRef = useRef<Map<number, number>>(new Map())
   const lastManualMs = useRef(0)
   const isProgrammaticScrollRef = useRef(false)
+  const programmaticScrollResetTimerRef = useRef<number | null>(null)
 
   const [contentViewportWidth, setContentViewportWidth] = useState(0)
   const [scrollLeft, setScrollLeft] = useState(0)
@@ -196,6 +207,33 @@ function ReviewTimelineWorkspace({
     onViewportWidthChange(contentViewportWidth)
   }, [contentViewportWidth, onViewportWidthChange])
 
+  useEffect(() => () => {
+    if (programmaticScrollResetTimerRef.current !== null) {
+      window.clearTimeout(programmaticScrollResetTimerRef.current)
+    }
+  }, [])
+
+  const lockProgrammaticScroll = useCallback((mode: 'instant' | 'smooth') => {
+    isProgrammaticScrollRef.current = true
+
+    if (programmaticScrollResetTimerRef.current !== null) {
+      window.clearTimeout(programmaticScrollResetTimerRef.current)
+      programmaticScrollResetTimerRef.current = null
+    }
+
+    if (mode === 'smooth') {
+      programmaticScrollResetTimerRef.current = window.setTimeout(() => {
+        isProgrammaticScrollRef.current = false
+        programmaticScrollResetTimerRef.current = null
+      }, SMOOTH_SCROLL_LOCK_MS)
+      return
+    }
+
+    requestAnimationFrame(() => {
+      isProgrammaticScrollRef.current = false
+    })
+  }, [])
+
   const setPendingZoomAnchorByViewportX = useCallback((viewportX: number) => {
     if (durationMs <= 0 || !contentRef.current) {
       return
@@ -214,7 +252,44 @@ function ReviewTimelineWorkspace({
       const targetX = msToX(targetMs)
       setPendingZoomAnchorByViewportX(targetX - scrollLeft)
     },
-  }), [durationMs, msToX, scrollLeft, setPendingZoomAnchorByViewportX])
+    locatePlayheadInViewport: (options?: LocatePlayheadOptions) => {
+      const content = contentRef.current
+      if (!content || durationMs <= 0) {
+        return false
+      }
+
+      const behavior = options?.behavior ?? 'auto'
+      const centerBiasPx = Number.isFinite(options?.centerBiasPx)
+        ? Number(options?.centerBiasPx)
+        : 0
+      const playheadX = msToX(clamp(playheadMs, 0, durationMs))
+      const rawScrollLeft = playheadX - content.clientWidth / 2 + centerBiasPx
+      const maxScrollLeft = Math.max(0, totalWidth - content.clientWidth)
+      const nextScrollLeft = clamp(Math.round(rawScrollLeft), 0, maxScrollLeft)
+
+      if (Math.abs(content.scrollLeft - nextScrollLeft) < 1) {
+        return false
+      }
+
+      lockProgrammaticScroll(behavior === 'smooth' ? 'smooth' : 'instant')
+
+      if (behavior === 'smooth') {
+        content.scrollTo({ left: nextScrollLeft, behavior: 'smooth' })
+      } else {
+        content.scrollLeft = nextScrollLeft
+      }
+      setScrollLeft(nextScrollLeft)
+      return true
+    },
+  }), [
+    durationMs,
+    lockProgrammaticScroll,
+    msToX,
+    playheadMs,
+    scrollLeft,
+    setPendingZoomAnchorByViewportX,
+    totalWidth,
+  ])
 
   useEffect(() => {
     const pendingAnchor = pendingZoomAnchorRef.current
@@ -228,10 +303,11 @@ function ReviewTimelineWorkspace({
     const maxScrollLeft = Math.max(0, totalWidth - content.clientWidth)
     const nextScrollLeft = clamp(Math.round(rawScrollLeft), 0, maxScrollLeft)
 
+    lockProgrammaticScroll('instant')
     content.scrollLeft = nextScrollLeft
     setScrollLeft(nextScrollLeft)
     pendingZoomAnchorRef.current = null
-  }, [durationMs, totalWidth, msToX])
+  }, [durationMs, lockProgrammaticScroll, totalWidth, msToX])
 
   useEffect(() => {
     if (!isPlaying) return
@@ -245,12 +321,9 @@ function ReviewTimelineWorkspace({
     const maxScrollLeft = Math.max(0, totalWidth - content.clientWidth)
     const clamped = Math.max(0, Math.min(targetScrollLeft, maxScrollLeft))
 
-    isProgrammaticScrollRef.current = true
+    lockProgrammaticScroll('instant')
     content.scrollLeft = clamped
-    requestAnimationFrame(() => {
-      isProgrammaticScrollRef.current = false
-    })
-  }, [playheadMs, isPlaying, durationMs, msToX, totalWidth])
+  }, [playheadMs, isPlaying, durationMs, lockProgrammaticScroll, msToX, totalWidth])
 
   const resolveTimelinePosition = (
     clientX: number,
@@ -678,7 +751,10 @@ function ReviewTimelineWorkspace({
   }
 
   return (
-    <div className="relative grid h-full min-w-0 grid-rows-[32px_minmax(0,1fr)] overflow-hidden bg-[var(--sc-bg-panel)]">
+    <div
+      className="relative grid h-full min-w-0 overflow-hidden bg-[var(--sc-bg-panel)]"
+      style={{ gridTemplateRows: `${RULER_HEIGHT_PX}px minmax(0, 1fr)` }}
+    >
         <div
           ref={rulerViewportRef}
           className="overflow-hidden border-b border-[var(--sc-border-subtle)] bg-[var(--sc-bg-surface)]"
@@ -692,8 +768,8 @@ function ReviewTimelineWorkspace({
           }}
         >
           <div
-            className="relative h-8"
-            style={{ width: totalWidth, marginLeft: -scrollLeft }}
+            className="relative"
+            style={{ width: totalWidth, marginLeft: -scrollLeft, height: RULER_HEIGHT_PX }}
           >
             {ticks.map((tick) => {
               const x = msToX(tick.ms)
@@ -769,7 +845,8 @@ function ReviewTimelineWorkspace({
                       width,
                       height: trackHeight,
                       borderColor: active ? 'var(--sc-accent)' : 'var(--sc-border-strong)',
-                      background: 'linear-gradient(180deg,#1d2432 0%,#141a25 100%)',
+                      background:
+                        'linear-gradient(180deg,var(--sc-scene-gradient-start) 0%,var(--sc-scene-gradient-end) 100%)',
                     }}
                   >
                     {times.map((frameMs, frameIndex) => {
@@ -796,7 +873,13 @@ function ReviewTimelineWorkspace({
                               className="h-full w-full object-cover opacity-70"
                             />
                           ) : (
-                            <div className="h-full w-full bg-gradient-to-br from-[#1a2130] to-[#121722]" />
+                            <div
+                              className="h-full w-full"
+                              style={{
+                                background:
+                                  'linear-gradient(135deg,var(--sc-scene-placeholder-start) 0%,var(--sc-scene-placeholder-end) 100%)',
+                              }}
+                            />
                           )}
                         </div>
                       )
@@ -841,16 +924,17 @@ function ReviewTimelineWorkspace({
               ) : null}
             </div>
 
-            <div
-              className="absolute top-1 whitespace-nowrap rounded bg-black/50 px-1.5 py-0.5 font-mono text-[10px] text-[var(--sc-text-primary)]"
-              style={{ left: timeTagLeftPx }}
-            >
-              {hoveredMs === null ? formatMs(effectivePlayheadMs) : formatMs(hoveredMs)}
-            </div>
           </div>
         </div>
 
         <div className="pointer-events-none absolute inset-0">
+          <div
+            className="absolute whitespace-nowrap rounded bg-black/50 px-1.5 py-0.5 font-mono text-[10px] text-[var(--sc-text-primary)]"
+            style={{ left: timeTagLeftPx, top: TIME_TAG_TOP_OFFSET_PX }}
+          >
+            {hoveredMs === null ? formatMs(effectivePlayheadMs) : formatMs(hoveredMs)}
+          </div>
+
           <div
             className="pointer-events-auto absolute bottom-0 top-0 cursor-ew-resize"
             style={{
@@ -879,8 +963,8 @@ function ReviewTimelineWorkspace({
                 width: isDraggingPlayhead ? 3 : 2,
                 opacity: isDraggingPlayhead ? 0.95 : 0.85,
                 boxShadow: isDraggingPlayhead
-                  ? '0 0 8px 2px rgba(139, 92, 246, 0.36)'
-                  : '0 0 6px 1px rgba(139, 92, 246, 0.25)',
+                  ? '0 0 8px 2px var(--sc-playhead-glow-strong)'
+                  : '0 0 6px 1px var(--sc-playhead-glow-soft)',
               }}
             />
           </div>

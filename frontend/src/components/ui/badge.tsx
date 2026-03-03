@@ -13,7 +13,7 @@ export function Badge({
   ...props
 }: BadgeProps) {
   const variantStyles = {
-    default: 'bg-gray-100 text-gray-600',
+    default: 'border border-[var(--sc-border-subtle)] bg-[var(--sc-bg-surface)] text-[var(--sc-text-secondary)]',
     success: 'bg-success-bg text-success-text',
     warning: 'bg-warning-bg text-warning-text',
     danger: 'bg-danger-bg text-danger-text',

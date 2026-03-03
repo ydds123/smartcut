@@ -114,7 +114,7 @@ function App() {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[var(--sc-bg-app)]">
         <div className="text-center">
-          <h1 className="mb-2 text-2xl font-bold text-danger">加载失败</h1>
+          <h1 className="mb-2 text-2xl font-bold text-[var(--sc-danger)]">加载失败</h1>
           <p className="text-[var(--sc-text-muted)]">{error.message}</p>
         </div>
       </div>

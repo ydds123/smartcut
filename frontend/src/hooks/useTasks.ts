@@ -1,14 +1,8 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { taskService } from '@/services/taskService'
-import type { ProcessTaskOptions, ReviewScene, Task } from '@/types/task'
+import { ACTIVE_TASK_STATUSES, type ProcessTaskOptions, type ReviewScene, type Task } from '@/types/task'
 
-const ACTIVE_TASK_STATUSES = new Set([
-  'QUEUED',
-  'PROCESSING',
-  'DETECTING',
-  'SPLITTING',
-  'REVIEW_APPROVED',
-])
+const ACTIVE_TASK_STATUS_SET = new Set(ACTIVE_TASK_STATUSES)
 
 /**
  * 获取任务列表 Hook
@@ -28,7 +22,7 @@ export function useTasks() {
       if (!tasks.length) {
         return false
       }
-      const hasActiveTask = tasks.some((task) => ACTIVE_TASK_STATUSES.has(task.status))
+      const hasActiveTask = tasks.some((task) => ACTIVE_TASK_STATUS_SET.has(task.status))
       return hasActiveTask ? 5000 : false
     },
     staleTime: 5000, // 5 秒内数据视为新鲜
@@ -122,7 +116,12 @@ export function useTaskResult(id: string) {
 export function useStartReview() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (id: string) => taskService.startReview(id),
+    mutationFn: (payload: { id: string; options?: ProcessTaskOptions } | string) => {
+      if (typeof payload === 'string') {
+        return taskService.startReview(payload)
+      }
+      return taskService.startReview(payload.id, payload.options)
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tasks'] })
     },

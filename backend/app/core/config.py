@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     REDIS_URL: str = "redis://localhost:6379/0"
     REDIS_CONNECT_RETRIES: int = 3
     REDIS_RETRY_DELAY_SEC: float = 0.5
+    REDIS_RETRY_MAX_DELAY_SEC: float = 3.0
 
     # 文件存储
     UPLOAD_DIR: str = "./data/uploads"
@@ -17,6 +18,7 @@ class Settings(BaseSettings):
     ENABLE_INCREMENTAL_SPLIT: bool = True
     FFMPEG_PROCESS_TIMEOUT_SEC: int = 600
     FFPROBE_TIMEOUT_SEC: int = 30
+    RQ_JOB_RETRY_MAX: int = 2
 
     # 访问控制
     API_AUTH_ENABLED: bool = False
@@ -25,6 +27,8 @@ class Settings(BaseSettings):
 
     # 速率限制（轻量内存实现）
     RATE_LIMIT_ENABLED: bool = False
+    RATE_LIMIT_BACKEND: str = "memory"  # memory | redis
+    RATE_LIMIT_TRUST_PROXY_HEADERS: bool = False
     RATE_LIMIT_WINDOW_SEC: int = 60
     RATE_LIMIT_MUTATION_MAX_REQUESTS: int = 30
     RATE_LIMIT_UPLOAD_MAX_REQUESTS: int = 8

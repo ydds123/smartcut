@@ -1,4 +1,4 @@
-import { clamp, formatMsFull } from './reviewUtils'
+import { clamp, formatMsAdaptive } from './reviewUtils'
 
 interface ReviewPlaybackControlsProps {
   playheadMs: number
@@ -25,7 +25,10 @@ export function ReviewPlaybackControls({
   onTogglePlay,
   onPlaybackRateChange,
 }: ReviewPlaybackControlsProps) {
-  const maxDuration = Math.max(durationMs, 1)
+  const safeDurationMs = Math.max(0, durationMs)
+  const maxDuration = Math.max(safeDurationMs, 1)
+  const safePlayheadMs = clamp(playheadMs, 0, safeDurationMs)
+  const displayTimeText = `${formatMsAdaptive(safePlayheadMs)}/${formatMsAdaptive(safeDurationMs)}`
 
   return (
     <div className="flex items-center gap-2 border-b border-[var(--sc-border-subtle)] bg-[var(--sc-bg-surface)] px-4">
@@ -75,7 +78,7 @@ export function ReviewPlaybackControls({
         className="sc-range ml-2 h-1.5 flex-1"
       />
 
-      <span className="w-28 text-right font-mono text-xs text-[var(--sc-text-muted)]">{formatMsFull(playheadMs)}</span>
+      <span className="w-36 text-right font-mono text-xs text-[var(--sc-text-muted)]">{displayTimeText}</span>
     </div>
   )
 }

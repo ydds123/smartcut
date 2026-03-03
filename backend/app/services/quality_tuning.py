@@ -8,48 +8,12 @@ import subprocess
 from copy import deepcopy
 from typing import Any
 
+from app.services.processing_param_specs import build_default_quality_config, normalize_processing_config
+
 logger = logging.getLogger(__name__)
 
 
-DEFAULT_QUALITY_CONFIG: dict[str, Any] = {
-    "detector": "content",
-    "scene_threshold": 27.0,
-    "min_scene_len_frames": 15,
-    "min_scene_duration_ms_floor": 1000,
-    "downscale": 1,
-    "frame_skip": 0,
-    "adaptive_threshold": 3.0,
-    "adaptive_min_content_val": 15.0,
-    "adaptive_frame_window": 2,
-    "thumbnail_retry": 1,
-    "weight_hue": 1.0,
-    "weight_sat": 1.0,
-    "weight_lum": 1.0,
-    "weight_edges": 0.0,
-    # TransNetV2 深度学习配置（当前默认关闭，优先稳定性）
-    "detection_mode": "fast",
-    "use_transnet": False,
-    "transnet_threshold": 0.3,                # 概率阈值（0-1）
-    "transnet_soft_candidate_multiplier": 0.75,  # 候选软保留倍率（0.5-1.0）
-    "transnet_tolerance_frames": 12,          # 边界匹配容差（帧数）
-    "transnet_window_size": 100,              # 分析窗口大小（帧数）
-    "transnet_additional_boundary_threshold": 0.55,  # 补边阈值（0-1）
-    "transnet_only_min_gap_frames": 12,       # 补边最小间隔（帧）
-    # ThresholdDetector（软切/淡入淡出检测）
-    "use_threshold_detector": False,          # 是否叠加 detect-threshold（默认关闭）
-    "threshold_detector_threshold": 12.0,    # 淡出亮度阈值（0-255）
-    "threshold_detector_fade_bias": 0.0,     # 切割位置偏移百分比（-100 到 +100）
-    # 后处理二次合并
-    "merge_gap_frames": 0,                   # 合并间隔阈值（帧），0 = 不启用
-    # 切分模式
-    "split_copy_mode": False,                # True = FFmpeg copy 模式（快速，可能有帧偏移）
-    # PySceneDetect 命令超时
-    "scenedetect_timeout_sec": 600,          # scenedetect 最大执行时长（秒）
-}
-
-
-def _clamp(value: float, lower: float, upper: float) -> float:
-    return max(lower, min(upper, value))
+DEFAULT_QUALITY_CONFIG: dict[str, Any] = build_default_quality_config()
 
 
 def _parse_ratio(value: str | None) -> float:
@@ -152,70 +116,7 @@ def _sanitize_override(override_config: dict[str, Any] | None) -> dict[str, Any]
 
 
 def _normalize_quality_config(config: dict[str, Any]) -> dict[str, Any]:
-    normalized = deepcopy(config)
-    normalized["scene_threshold"] = round(_clamp(float(normalized.get("scene_threshold", 27.0)), 8.0, 60.0), 2)
-    normalized["adaptive_threshold"] = round(
-        _clamp(float(normalized.get("adaptive_threshold", 3.0)), 0.8, 8.0), 2
-    )
-    normalized["adaptive_min_content_val"] = round(
-        _clamp(float(normalized.get("adaptive_min_content_val", 15.0)), 5.0, 60.0), 2
-    )
-    normalized["adaptive_frame_window"] = int(
-        _clamp(float(normalized.get("adaptive_frame_window", 2)), 1.0, 8.0)
-    )
-    normalized["min_scene_len_frames"] = int(
-        _clamp(float(normalized.get("min_scene_len_frames", 15)), 4.0, 300.0)
-    )
-    normalized["min_scene_duration_ms_floor"] = int(
-        _clamp(float(normalized.get("min_scene_duration_ms_floor", 1000)), 200.0, 3000.0)
-    )
-    normalized["downscale"] = int(_clamp(float(normalized.get("downscale", 1)), 1.0, 8.0))
-    normalized["frame_skip"] = int(_clamp(float(normalized.get("frame_skip", 0)), 0.0, 10.0))
-    normalized["thumbnail_retry"] = int(_clamp(float(normalized.get("thumbnail_retry", 1)), 0.0, 3.0))
-    normalized["weight_hue"] = round(_clamp(float(normalized.get("weight_hue", 1.0)), 0.0, 10.0), 3)
-    normalized["weight_sat"] = round(_clamp(float(normalized.get("weight_sat", 1.0)), 0.0, 10.0), 3)
-    normalized["weight_lum"] = round(_clamp(float(normalized.get("weight_lum", 1.0)), 0.0, 10.0), 3)
-    normalized["weight_edges"] = round(_clamp(float(normalized.get("weight_edges", 0.0)), 0.0, 10.0), 3)
-    normalized["detector"] = "adaptive" if normalized.get("detector") == "adaptive" else "content"
-    normalized["detection_mode"] = "precision" if normalized.get("detection_mode") == "precision" else "fast"
-    use_transnet = normalized.get("use_transnet")
-    if normalized["detection_mode"] != "precision":
-        normalized["use_transnet"] = False
-    elif use_transnet is None:
-        normalized["use_transnet"] = True
-    else:
-        normalized["use_transnet"] = bool(use_transnet)
-    normalized["transnet_threshold"] = round(_clamp(float(normalized.get("transnet_threshold", 0.3)), 0.0, 1.0), 2)
-    normalized["transnet_soft_candidate_multiplier"] = round(
-        _clamp(float(normalized.get("transnet_soft_candidate_multiplier", 0.75)), 0.5, 1.0), 2
-    )
-    normalized["transnet_tolerance_frames"] = int(
-        _clamp(float(normalized.get("transnet_tolerance_frames", 12)), 1, 100)
-    )
-    normalized["transnet_window_size"] = int(
-        _clamp(float(normalized.get("transnet_window_size", 100)), 50, 400)
-    )
-    normalized["transnet_additional_boundary_threshold"] = round(
-        _clamp(float(normalized.get("transnet_additional_boundary_threshold", 0.55)), 0.0, 1.0), 2
-    )
-    normalized["transnet_only_min_gap_frames"] = int(
-        _clamp(float(normalized.get("transnet_only_min_gap_frames", 12)), 1, 300)
-    )
-    normalized["use_threshold_detector"] = bool(normalized.get("use_threshold_detector", False))
-    normalized["threshold_detector_threshold"] = round(
-        _clamp(float(normalized.get("threshold_detector_threshold", 12.0)), 0.0, 255.0), 2
-    )
-    normalized["threshold_detector_fade_bias"] = round(
-        _clamp(float(normalized.get("threshold_detector_fade_bias", 0.0)), -100.0, 100.0), 2
-    )
-    normalized["merge_gap_frames"] = int(
-        _clamp(float(normalized.get("merge_gap_frames", 0)), 0.0, 600.0)
-    )
-    normalized["split_copy_mode"] = bool(normalized.get("split_copy_mode", False))
-    normalized["scenedetect_timeout_sec"] = int(
-        _clamp(float(normalized.get("scenedetect_timeout_sec", 600)), 30.0, 3600.0)
-    )
-    return normalized
+    return normalize_processing_config(deepcopy(config))
 
 
 def resolve_quality_config(

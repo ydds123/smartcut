@@ -113,8 +113,8 @@ export function UploadArea() {
           relative border-2 border-dashed rounded-lg p-12 text-center transition-colors
           ${
             isDragging
-              ? 'border-blue-500 bg-blue-50'
-              : 'border-gray-300 hover:border-gray-400'
+              ? 'border-[var(--sc-accent)] bg-[var(--sc-accent-soft)]'
+              : 'border-[var(--sc-border-strong)] hover:border-[var(--sc-border-subtle)]'
           }
           ${isUploading ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
         `}
@@ -129,7 +129,7 @@ export function UploadArea() {
 
         <div className="space-y-4">
           {/* 图标 */}
-          <div className="mx-auto w-16 h-16 text-gray-400">
+          <div className="mx-auto w-16 h-16 text-[var(--sc-text-muted)]">
             <svg
               fill="none"
               stroke="currentColor"
@@ -147,10 +147,10 @@ export function UploadArea() {
 
           {/* 文本 */}
           <div>
-            <p className="text-lg font-medium text-gray-900">
+            <p className="text-lg font-medium text-[var(--sc-text-primary)]">
               {isDragging ? '释放文件以上传' : '拖拽视频文件到此处'}
             </p>
-            <p className="text-sm text-gray-500 mt-1">
+            <p className="mt-1 text-sm text-[var(--sc-text-muted)]">
               或点击选择文件 • 支持 MP4/MOV/AVI/MKV • 最大 500MB
             </p>
           </div>
@@ -159,14 +159,14 @@ export function UploadArea() {
 
       {/* 上传进度 */}
       {isUploading && (
-        <div className="bg-white rounded-lg p-4 border border-gray-200">
+        <div className="rounded-lg border border-[var(--sc-border-subtle)] bg-[var(--sc-bg-surface)] p-4">
           <div className="flex justify-between text-sm mb-2">
-            <span className="text-gray-600">上传中...</span>
+            <span className="text-[var(--sc-text-secondary)]">上传中...</span>
             <span className="font-medium">{progress}%</span>
           </div>
-          <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
+          <div className="h-2 w-full overflow-hidden rounded-full bg-[var(--sc-bg-elevated)]">
             <div
-              className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+              className="h-2 rounded-full bg-[var(--sc-accent)] transition-all duration-300"
               style={{ width: `${progress}%` }}
             />
           </div>

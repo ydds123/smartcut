@@ -13,6 +13,21 @@ export type TaskStatus =
   | 'SPLITTING'
   | 'TIMELINE_READY'
 
+export const ACTIVE_TASK_STATUSES: TaskStatus[] = [
+  'QUEUED',
+  'PROCESSING',
+  'DETECTING',
+  'REVIEW_APPROVED',
+  'SPLITTING',
+]
+
+export const TERMINAL_TASK_STATUSES: TaskStatus[] = [
+  'COMPLETED',
+  'FAILED',
+  'REVIEW_PENDING',
+  'TIMELINE_READY',
+]
+
 export interface ReviewScene {
   startMs: number
   endMs: number
@@ -65,6 +80,48 @@ export interface ProcessTaskOptions {
   overrideConfig?: Partial<ProcessingConfig>
 }
 
+export type ProcessingFieldGroup = 'sensitivity' | 'min-scene' | 'stability' | 'transnet' | 'misc'
+
+export interface ProcessingConfigGroupMeta {
+  id: ProcessingFieldGroup
+  label: string
+  description: string
+}
+
+export interface ProcessingConfigFieldMeta {
+  key: keyof ProcessingConfig
+  type: 'enum' | 'bool' | 'int' | 'float'
+  default: string | number | boolean
+  min?: number | null
+  max?: number | null
+  step?: number | null
+  group?: ProcessingFieldGroup | null
+  label?: string | null
+  description?: string | null
+  detectorScope?: 'adaptive' | 'content' | null
+  modeScope?: 'precision' | null
+  boolScope?: keyof ProcessingConfig | null
+  options?: string[] | null
+  provenance: 'pyscenedetect' | 'smartcut'
+  sourceRef?: string | null
+  uiVisible: boolean
+}
+
+export interface ProcessingConfigMeta {
+  version: string
+  groups: ProcessingConfigGroupMeta[]
+  defaults: ProcessingConfig
+  fields: ProcessingConfigFieldMeta[]
+}
+
+export interface ProcessTaskResult {
+  status: string
+  jobId?: string
+  deduplicated?: boolean
+  resolvedConfig?: Partial<ProcessingConfig>
+  configMeta?: ProcessingConfigMeta
+}
+
 export interface QualityFlags {
   overSegmented?: boolean
   underSegmented?: boolean
@@ -113,8 +170,11 @@ export interface Task {
   displayName: string
   filePath: string
   fileSize: number
+  durationMs?: number | null
   status: TaskStatus
   progress: number
+  activeOperation?: string | null
+  activeJobId?: string | null
   totalScenes: number | null
   shotsCount?: number | null
   previewThumbnailPath?: string | null
@@ -165,15 +225,24 @@ export interface UploadProgress {
   percentage: number
 }
 
-/**
- * SSE 进度事件
- */
-export interface ProgressEvent {
+export interface ProgressStreamEvent {
+  type: 'progress' | 'terminal'
   taskId: string
   progress: number
   status: TaskStatus
-  message?: string
+  totalScenes?: number | null
+  timestamp: number
 }
+
+export interface ProgressStreamErrorEvent {
+  type: 'error'
+  taskId: string
+  errorCode: string
+  errorMessage: string
+  timestamp: number
+}
+
+export type ProgressStreamPayload = ProgressStreamEvent | ProgressStreamErrorEvent
 
 /**
  * 任务详情（包含镜头列表）

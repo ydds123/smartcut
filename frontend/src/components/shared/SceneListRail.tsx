@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 
 export interface SceneListRailItem {
   id: string
@@ -24,6 +25,8 @@ export interface SceneListRailProps {
   listTestId?: string
   formatTimeLabel?: (ms: number) => string
   onPreviewError?: (item: SceneListRailItem) => void
+  forceCenterKey?: number
+  headerAction?: ReactNode
 }
 
 function defaultFormatTimeLabel(ms: number): string {
@@ -55,11 +58,42 @@ export function SceneListRail({
   listTestId,
   formatTimeLabel = defaultFormatTimeLabel,
   onPreviewError,
+  forceCenterKey,
+  headerAction,
 }: SceneListRailProps) {
   const [failedPreviewIds, setFailedPreviewIds] = useState<Set<string>>(new Set())
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const itemRefs = useRef(new Map<number, HTMLDivElement>())
-  const lastManualMs = useRef(0)
+  const manualOverrideUntilRef = useRef(0)
+  const programmaticScrollUntilRef = useRef(0)
+
+  const markManualOverride = useCallback(() => {
+    if (manualScrollCooldownMs <= 0) {
+      manualOverrideUntilRef.current = 0
+      return
+    }
+    manualOverrideUntilRef.current = Date.now() + manualScrollCooldownMs
+  }, [manualScrollCooldownMs])
+
+  const markProgrammaticScroll = useCallback(() => {
+    programmaticScrollUntilRef.current = Date.now() + 500
+  }, [])
+
+  const scrollIndexToCenter = useCallback(
+    (index: number, behavior: ScrollBehavior = 'smooth') => {
+      const container = scrollContainerRef.current
+      const item = itemRefs.current.get(index)
+      if (!container || !item) {
+        return false
+      }
+
+      const targetScrollTop = item.offsetTop - container.clientHeight / 2 + item.clientHeight / 2
+      markProgrammaticScroll()
+      container.scrollTo({ top: targetScrollTop, behavior })
+      return true
+    },
+    [markProgrammaticScroll]
+  )
 
   useEffect(() => {
     setFailedPreviewIds((previous) => {
@@ -84,25 +118,25 @@ export function SceneListRail({
     if (autoScrollTrigger === 'playing' && !isPlaying) {
       return
     }
-    if (Date.now() - lastManualMs.current < manualScrollCooldownMs) {
+    if (Date.now() < manualOverrideUntilRef.current) {
       return
     }
-
-    const container = scrollContainerRef.current
-    const item = itemRefs.current.get(selectedIndex)
-    if (!container || !item) {
-      return
-    }
-
-    const targetScrollTop = item.offsetTop - container.clientHeight / 2 + item.clientHeight / 2
-    container.scrollTo({ top: targetScrollTop, behavior: 'smooth' })
+    scrollIndexToCenter(selectedIndex, 'smooth')
   }, [
     autoScrollTrigger,
     enableAutoScrollOnSelection,
     isPlaying,
-    manualScrollCooldownMs,
     selectedIndex,
+    scrollIndexToCenter,
   ])
+
+  useEffect(() => {
+    if (forceCenterKey === undefined || selectedIndex === null) {
+      return
+    }
+    manualOverrideUntilRef.current = 0
+    scrollIndexToCenter(selectedIndex, 'smooth')
+  }, [forceCenterKey, selectedIndex, scrollIndexToCenter])
 
   const totalDurationMs = useMemo(
     () => (items.length > 0 ? items[items.length - 1].endMs : 0),
@@ -114,17 +148,27 @@ export function SceneListRail({
   return (
     <div className="sc-panel flex h-full flex-col rounded-xl p-2.5">
       <div className="sc-surface mb-2 rounded-lg px-2.5 py-2 text-xs">
-        <div className="font-semibold text-[var(--sc-text-primary)]">镜头 {items.length}</div>
-        <div className="mt-0.5 text-[11px] text-[var(--sc-text-muted)]">
-          {isReviewVariant ? '审核视图镜头列表' : '时间轴镜头列表'}
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <div className="font-semibold text-[var(--sc-text-primary)]">镜头 {items.length}</div>
+            <div className="mt-0.5 text-[11px] text-[var(--sc-text-muted)]">
+              {isReviewVariant ? '审核视图镜头列表' : '时间轴镜头列表'}
+            </div>
+          </div>
+          {headerAction ? <div className="shrink-0">{headerAction}</div> : null}
         </div>
       </div>
 
       <div
         ref={scrollContainerRef}
         onScroll={() => {
-          lastManualMs.current = Date.now()
+          if (Date.now() < programmaticScrollUntilRef.current) {
+            return
+          }
+          markManualOverride()
         }}
+        onWheel={markManualOverride}
+        onTouchMove={markManualOverride}
         data-testid={listTestId}
         className="relative min-h-0 flex-1 overflow-y-auto pr-1"
       >
@@ -172,7 +216,7 @@ export function SceneListRail({
                 <div
                   className={`flex-1 rounded-[10px] border transition-[border-color,background-color,box-shadow] ${
                     selected
-                      ? 'border-[var(--sc-accent)] bg-[var(--sc-accent-soft)] shadow-[inset_0_0_0_1px_rgba(91,140,255,0.35)]'
+                      ? 'border-[var(--sc-accent)] bg-[var(--sc-accent-soft)] shadow-[inset_0_0_0_1px_var(--sc-accent-inset-ring)]'
                       : 'border-[var(--sc-border-subtle)] bg-[var(--sc-bg-surface)] hover:bg-[var(--sc-bg-elevated)]'
                   }`}
                 >

@@ -1,5 +1,7 @@
 import json
 import logging
+import random
+import re
 import subprocess
 import time
 import tempfile
@@ -7,16 +9,18 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, List
+from uuid import uuid4
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse, Response
 from redis import Redis
-from rq import Queue
+from rq import Queue, Retry
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.rate_limit import enforce_rate_limit
+from app.core.telemetry import get_counters_snapshot, increment_counter, log_event
 from app.models.models import Scene, Task
 from app.schemas.task import (
     ProcessTaskRequest,
@@ -24,6 +28,7 @@ from app.schemas.task import (
     SaveReviewDataRequest,
     TaskResponse,
 )
+from app.services.processing_param_specs import build_processing_config_meta
 from app.services.file_service import FileService
 from app.services.quality_tuning import resolve_quality_config
 from app.workers.video_tasks import (
@@ -38,6 +43,13 @@ logger = logging.getLogger(__name__)
 _redis_conn: Redis | None = None
 _queue: Queue | None = None
 
+ACTIVE_STATUSES_BY_OPERATION: dict[str, set[str]] = {
+    "process": {"QUEUED", "PROCESSING"},
+    "review": {"QUEUED", "DETECTING"},
+    "split": {"REVIEW_APPROVED", "SPLITTING"},
+}
+RQ_ACTIVE_JOB_STATUSES = {"queued", "started", "deferred", "scheduled"}
+
 
 def _get_queue() -> Queue:
     """懒加载 RQ queue，避免模块导入阶段因 Redis 不可用导致服务崩溃。"""
@@ -47,6 +59,10 @@ def _get_queue() -> Queue:
 
     retry_times = max(1, int(getattr(settings, "REDIS_CONNECT_RETRIES", 3)))
     retry_delay_sec = max(0.1, float(getattr(settings, "REDIS_RETRY_DELAY_SEC", 0.5)))
+    retry_max_delay_sec = max(
+        retry_delay_sec,
+        float(getattr(settings, "REDIS_RETRY_MAX_DELAY_SEC", 3.0)),
+    )
     last_error: Exception | None = None
 
     for attempt in range(1, retry_times + 1):
@@ -71,10 +87,161 @@ def _get_queue() -> Queue:
                 retry_times,
                 exc,
             )
+            if isinstance(exc, ValueError):
+                break
             if attempt < retry_times:
-                time.sleep(retry_delay_sec * attempt)
+                backoff_cap = min(retry_max_delay_sec, retry_delay_sec * (2 ** (attempt - 1)))
+                time.sleep(random.uniform(0, backoff_cap))
 
     raise HTTPException(status_code=503, detail=f"Queue unavailable: {last_error}")
+
+
+def _normalize_idempotency_key(raw_value: str | None) -> str | None:
+    if not raw_value:
+        return None
+    trimmed = raw_value.strip()
+    if not trimmed:
+        return None
+    sanitized = re.sub(r"[^a-zA-Z0-9._:-]", "-", trimmed)[:96]
+    return sanitized or None
+
+
+def _build_job_id(task_id: str, operation: str, request: Request) -> tuple[str, bool]:
+    idempotency_key = _normalize_idempotency_key(request.headers.get("Idempotency-Key"))
+    if idempotency_key:
+        return f"task:{task_id}:{operation}:{idempotency_key}", True
+    return f"task:{task_id}:{operation}:{uuid4().hex}", False
+
+
+def _build_retry_policy() -> Retry | None:
+    retry_max = max(0, int(getattr(settings, "RQ_JOB_RETRY_MAX", 2)))
+    if retry_max <= 0:
+        return None
+    # 轻量指数退避节奏，避免多 worker 同频重试。
+    intervals = [5, 15, 30]
+    return Retry(max=retry_max, interval=intervals[: max(1, retry_max)])
+
+
+def _enqueue_with_dedup(
+    queue: Queue,
+    *,
+    job_id: str,
+    func: Any,
+    args: list[Any],
+    job_timeout: int,
+    result_ttl: int,
+) -> tuple[Any, bool]:
+    existing_job = queue.fetch_job(job_id)
+    if existing_job is not None:
+        existing_status = (existing_job.get_status(refresh=True) or "").lower()
+        if existing_status in RQ_ACTIVE_JOB_STATUSES:
+            increment_counter("duplicate_enqueue_detected_total")
+            log_event(
+                logger,
+                logging.INFO,
+                "task_enqueue_deduplicated",
+                job_id=job_id,
+                job_status=existing_status,
+            )
+            return existing_job, True
+        raise HTTPException(
+            status_code=409,
+            detail="Idempotency key conflicts with a finished job, please retry with a new key",
+        )
+
+    try:
+        enqueue_kwargs: dict[str, Any] = {
+            "job_id": job_id,
+            "job_timeout": job_timeout,
+            "result_ttl": result_ttl,
+        }
+        retry_policy = _build_retry_policy()
+        if retry_policy is not None:
+            enqueue_kwargs["retry"] = retry_policy
+        job = queue.enqueue(
+            func,
+            *args,
+            **enqueue_kwargs,
+        )
+        return job, False
+    except Exception:
+        existing_job = queue.fetch_job(job_id)
+        if existing_job is not None:
+            existing_status = (existing_job.get_status(refresh=True) or "").lower()
+            if existing_status in RQ_ACTIVE_JOB_STATUSES:
+                increment_counter("duplicate_enqueue_detected_total")
+                log_event(
+                    logger,
+                    logging.INFO,
+                    "task_enqueue_deduplicated_race",
+                    job_id=job_id,
+                    job_status=existing_status,
+                )
+                return existing_job, True
+        raise
+
+
+def _best_effort_cancel_job(queue: Queue, job_id: str) -> None:
+    try:
+        queue.cancel_job(job_id)
+    except Exception:
+        logger.debug("best-effort cancel job failed: %s", job_id, exc_info=True)
+
+
+def _update_task_when_status_matches(
+    db: Session,
+    *,
+    task_id: str,
+    expected_statuses: set[str],
+    updates: dict[str, Any],
+) -> bool:
+    rows = (
+        db.query(Task)
+        .filter(Task.id == task_id, Task.status.in_(tuple(expected_statuses)))
+        .update(updates, synchronize_session=False)
+    )
+    if rows == 1:
+        db.commit()
+        return True
+    db.rollback()
+    return False
+
+
+def _rollback_task_claim(
+    db: Session,
+    *,
+    task_id: str,
+    operation: str,
+    active_job_id: str,
+    rollback_updates: dict[str, Any],
+) -> None:
+    rows = (
+        db.query(Task)
+        .filter(
+            Task.id == task_id,
+            Task.active_operation == operation,
+            Task.active_job_id == active_job_id,
+        )
+        .update(rollback_updates, synchronize_session=False)
+    )
+    if rows == 1:
+        db.commit()
+    else:
+        db.rollback()
+
+
+def _build_deduplicated_response(
+    task: Task,
+    *,
+    config_meta: dict[str, Any],
+) -> ProcessTaskResponse:
+    return {
+        "status": task.status,
+        "job_id": task.active_job_id,
+        "deduplicated": True,
+        "resolved_config": _loads_json(task.resolved_config),
+        "config_meta": config_meta,
+    }
 
 
 def _limit_task_mutation(request: Request) -> None:
@@ -123,8 +290,11 @@ def _task_to_payload(task: Task, db: Session) -> dict[str, Any]:
         "display_name": task.display_name,
         "file_path": FileService.to_public_data_path(task.file_path),
         "file_size": task.file_size or 0,
+        "duration_ms": task.duration_ms,
         "status": task.status,
         "progress": task.progress or 0,
+        "active_operation": task.active_operation,
+        "active_job_id": task.active_job_id,
         "total_scenes": task.total_scenes,
         "shots_count": task.total_scenes,
         "preview_thumbnail_path": _resolve_task_preview(task, db),
@@ -196,6 +366,18 @@ def get_tasks(db: Session = Depends(get_db)):
     return [_task_to_payload(task, db) for task in tasks]
 
 
+@router.get("/config/processing-meta")
+def get_processing_config_meta():
+    """返回参数配置元数据（后端单一事实源）。"""
+    return build_processing_config_meta()
+
+
+@router.get("/metrics/counters")
+def get_metrics_counters():
+    """返回进程级轻量计数器快照（用于排障与告警接入）。"""
+    return {"counters": get_counters_snapshot()}
+
+
 @router.get("/tasks/{task_id}", response_model=TaskResponse)
 def get_task(task_id: str, db: Session = Depends(get_db)):
     """获取单个任务详情"""
@@ -260,8 +442,19 @@ def process_task(
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
 
+    config_meta = build_processing_config_meta()
     if task.status != "PENDING":
+        if (
+            task.active_operation == "process"
+            and task.active_job_id
+            and task.status in ACTIVE_STATUSES_BY_OPERATION["process"]
+        ):
+            increment_counter("duplicate_enqueue_detected_total")
+            return _build_deduplicated_response(task, config_meta=config_meta)
         raise HTTPException(status_code=409, detail="Task already processed")
+
+    queue = _get_queue()
+    job_id, _job_idempotent = _build_job_id(task_id, "process", http_request)
 
     override_config = _to_dict(payload.override_config) if payload.override_config else None
     try:
@@ -274,44 +467,113 @@ def process_task(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    task.status = "QUEUED"
-    task.process_mode = payload.mode
-    task.config_profile = payload.profile
-    task.requested_config = _to_json(override_config or {})
-    task.resolved_config = _to_json(resolved_config)
-    task.quality_flags = None
-    task.suspect_segments = None
-    task.tuning_history = _to_json([
-        {
-            "stage": "resolve",
-            "metadata": metadata,
-        }
-    ])
-    task.split_stats = None
-    db.commit()
+    claimed = _update_task_when_status_matches(
+        db,
+        task_id=task_id,
+        expected_statuses={"PENDING"},
+        updates={
+            "status": "QUEUED",
+            "active_operation": "process",
+            "active_job_id": job_id,
+            "process_mode": payload.mode,
+            "config_profile": payload.profile,
+            "requested_config": _to_json(override_config or {}),
+            "resolved_config": _to_json(resolved_config),
+            "quality_flags": None,
+            "suspect_segments": None,
+            "tuning_history": _to_json(
+                [
+                    {
+                        "stage": "resolve",
+                        "metadata": metadata,
+                    }
+                ]
+            ),
+            "split_stats": None,
+        },
+    )
+
+    if not claimed:
+        latest = db.query(Task).filter(Task.id == task_id).first()
+        if (
+            latest
+            and latest.active_operation == "process"
+            and latest.active_job_id
+            and latest.status in ACTIVE_STATUSES_BY_OPERATION["process"]
+        ):
+            increment_counter("duplicate_enqueue_detected_total")
+            return _build_deduplicated_response(latest, config_meta=config_meta)
+        raise HTTPException(status_code=409, detail="Task already processed")
 
     try:
-        job = _get_queue().enqueue(
-            process_video_task,
-            task_id,
-            task.file_path,
-            resolved_config,
+        job, deduplicated = _enqueue_with_dedup(
+            queue,
+            job_id=job_id,
+            func=process_video_task,
+            args=[task_id, task.file_path, resolved_config],
             job_timeout=600,
             result_ttl=3600,
         )
-        return {
-            "status": "QUEUED",
-            "job_id": job.id,
-            "resolved_config": resolved_config,
-        }
     except HTTPException:
-        task.status = "PENDING"
-        db.commit()
+        _rollback_task_claim(
+            db,
+            task_id=task_id,
+            operation="process",
+            active_job_id=job_id,
+            rollback_updates={
+                "status": "PENDING",
+                "active_operation": None,
+                "active_job_id": None,
+            },
+        )
+        log_event(
+            logger,
+            logging.WARNING,
+            "task_enqueue_failed_rollback",
+            task_id=task_id,
+            operation="process",
+            job_id=job_id,
+        )
         raise
     except Exception as exc:
-        task.status = "PENDING"
-        db.commit()
-        raise HTTPException(status_code=500, detail=f"Failed to queue task: {str(exc)}")
+        _rollback_task_claim(
+            db,
+            task_id=task_id,
+            operation="process",
+            active_job_id=job_id,
+            rollback_updates={
+                "status": "PENDING",
+                "active_operation": None,
+                "active_job_id": None,
+            },
+        )
+        log_event(
+            logger,
+            logging.ERROR,
+            "task_enqueue_exception_rollback",
+            task_id=task_id,
+            operation="process",
+            job_id=job_id,
+            error=str(exc),
+        )
+        raise HTTPException(status_code=500, detail=f"Failed to queue task: {str(exc)}") from exc
+
+    log_event(
+        logger,
+        logging.INFO,
+        "task_enqueued",
+        task_id=task_id,
+        operation="process",
+        job_id=job.id,
+        deduplicated=bool(deduplicated),
+    )
+    return {
+        "status": "QUEUED",
+        "job_id": job.id,
+        "deduplicated": bool(deduplicated),
+        "resolved_config": resolved_config,
+        "config_meta": config_meta,
+    }
 
 
 @router.get("/tasks/{task_id}/result")
@@ -341,7 +603,7 @@ def get_task_result(task_id: str, db: Session = Depends(get_db)):
     }
 
 
-@router.post("/tasks/{task_id}/review")
+@router.post("/tasks/{task_id}/review", response_model=ProcessTaskResponse)
 def start_review(
     task_id: str,
     http_request: Request,
@@ -354,12 +616,24 @@ def start_review(
     task = db.query(Task).filter(Task.id == task_id).first()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
+
+    config_meta = build_processing_config_meta()
     if task.status != "PENDING":
+        if (
+            task.active_operation == "review"
+            and task.active_job_id
+            and task.status in ACTIVE_STATUSES_BY_OPERATION["review"]
+        ):
+            increment_counter("duplicate_enqueue_detected_total")
+            return _build_deduplicated_response(task, config_meta=config_meta)
         raise HTTPException(status_code=409, detail="Task already processed")
+
+    queue = _get_queue()
+    job_id, _job_idempotent = _build_job_id(task_id, "review", http_request)
 
     override_config = _to_dict(payload.override_config) if payload.override_config else None
     try:
-        resolved_config, metadata = resolve_quality_config(
+        resolved_config, _metadata = resolve_quality_config(
             video_path=task.file_path,
             mode=payload.mode,
             profile=payload.profile,
@@ -368,32 +642,103 @@ def start_review(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    task.status = "QUEUED"
-    task.process_mode = payload.mode
-    task.config_profile = payload.profile
-    task.requested_config = _to_json(override_config or {})
-    task.resolved_config = _to_json(resolved_config)
-    task.split_stats = None
-    db.commit()
+    claimed = _update_task_when_status_matches(
+        db,
+        task_id=task_id,
+        expected_statuses={"PENDING"},
+        updates={
+            "status": "QUEUED",
+            "active_operation": "review",
+            "active_job_id": job_id,
+            "process_mode": payload.mode,
+            "config_profile": payload.profile,
+            "requested_config": _to_json(override_config or {}),
+            "resolved_config": _to_json(resolved_config),
+            "split_stats": None,
+        },
+    )
+
+    if not claimed:
+        latest = db.query(Task).filter(Task.id == task_id).first()
+        if (
+            latest
+            and latest.active_operation == "review"
+            and latest.active_job_id
+            and latest.status in ACTIVE_STATUSES_BY_OPERATION["review"]
+        ):
+            increment_counter("duplicate_enqueue_detected_total")
+            return _build_deduplicated_response(latest, config_meta=config_meta)
+        raise HTTPException(status_code=409, detail="Task already processed")
 
     try:
-        job = _get_queue().enqueue(
-            detect_scenes_for_review,
-            task_id,
-            task.file_path,
-            resolved_config,
+        job, deduplicated = _enqueue_with_dedup(
+            queue,
+            job_id=job_id,
+            func=detect_scenes_for_review,
+            args=[task_id, task.file_path, resolved_config],
             job_timeout=300,
             result_ttl=3600,
         )
-        return {"status": "QUEUED", "job_id": job.id}
     except HTTPException:
-        task.status = "PENDING"
-        db.commit()
+        _rollback_task_claim(
+            db,
+            task_id=task_id,
+            operation="review",
+            active_job_id=job_id,
+            rollback_updates={
+                "status": "PENDING",
+                "active_operation": None,
+                "active_job_id": None,
+            },
+        )
+        log_event(
+            logger,
+            logging.WARNING,
+            "task_enqueue_failed_rollback",
+            task_id=task_id,
+            operation="review",
+            job_id=job_id,
+        )
         raise
     except Exception as exc:
-        task.status = "PENDING"
-        db.commit()
-        raise HTTPException(status_code=500, detail=f"Failed to queue task: {str(exc)}")
+        _rollback_task_claim(
+            db,
+            task_id=task_id,
+            operation="review",
+            active_job_id=job_id,
+            rollback_updates={
+                "status": "PENDING",
+                "active_operation": None,
+                "active_job_id": None,
+            },
+        )
+        log_event(
+            logger,
+            logging.ERROR,
+            "task_enqueue_exception_rollback",
+            task_id=task_id,
+            operation="review",
+            job_id=job_id,
+            error=str(exc),
+        )
+        raise HTTPException(status_code=500, detail=f"Failed to queue task: {str(exc)}") from exc
+
+    log_event(
+        logger,
+        logging.INFO,
+        "task_enqueued",
+        task_id=task_id,
+        operation="review",
+        job_id=job.id,
+        deduplicated=bool(deduplicated),
+    )
+    return {
+        "status": "QUEUED",
+        "job_id": job.id,
+        "deduplicated": bool(deduplicated),
+        "resolved_config": resolved_config,
+        "config_meta": config_meta,
+    }
 
 
 @router.get("/tasks/{task_id}/review-data")
@@ -495,30 +840,118 @@ def approve_review(task_id: str, request: Request, db: Session = Depends(get_db)
     task = db.query(Task).filter(Task.id == task_id).first()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
+    if (
+        task.active_operation == "split"
+        and task.active_job_id
+        and task.status in ACTIVE_STATUSES_BY_OPERATION["split"]
+    ):
+        increment_counter("duplicate_enqueue_detected_total")
+        return {
+            "status": task.status,
+            "job_id": task.active_job_id,
+            "deduplicated": True,
+        }
     if task.status not in ("REVIEW_PENDING", "TIMELINE_READY"):
         raise HTTPException(status_code=409, detail=f"Task cannot be approved in current state (current={task.status})")
 
-    task.status = "REVIEW_APPROVED"
-    task.reviewed_at = datetime.now(timezone.utc).replace(tzinfo=None)
-    task.split_stats = None
-    db.commit()
+    previous_status = task.status
+    previous_reviewed_at = task.reviewed_at
+    queue = _get_queue()
+    job_id, _job_idempotent = _build_job_id(task_id, "split", request)
+
+    claimed = _update_task_when_status_matches(
+        db,
+        task_id=task_id,
+        expected_statuses={"REVIEW_PENDING", "TIMELINE_READY"},
+        updates={
+            "status": "REVIEW_APPROVED",
+            "reviewed_at": datetime.now(timezone.utc).replace(tzinfo=None),
+            "split_stats": None,
+            "active_operation": "split",
+            "active_job_id": job_id,
+        },
+    )
+    if not claimed:
+        latest = db.query(Task).filter(Task.id == task_id).first()
+        if (
+            latest
+            and latest.active_operation == "split"
+            and latest.active_job_id
+            and latest.status in ACTIVE_STATUSES_BY_OPERATION["split"]
+        ):
+            increment_counter("duplicate_enqueue_detected_total")
+            return {
+                "status": latest.status,
+                "job_id": latest.active_job_id,
+                "deduplicated": True,
+            }
+        raise HTTPException(status_code=409, detail=f"Task cannot be approved in current state (current={latest.status if latest else 'unknown'})")
 
     try:
-        job = _get_queue().enqueue(
-            split_video_after_review,
-            task_id,
+        job, deduplicated = _enqueue_with_dedup(
+            queue,
+            job_id=job_id,
+            func=split_video_after_review,
+            args=[task_id],
             job_timeout=600,
             result_ttl=3600,
         )
-        return {"status": "REVIEW_APPROVED", "job_id": job.id}
     except HTTPException:
-        task.status = "REVIEW_PENDING"
-        db.commit()
+        _rollback_task_claim(
+            db,
+            task_id=task_id,
+            operation="split",
+            active_job_id=job_id,
+            rollback_updates={
+                "status": previous_status,
+                "reviewed_at": previous_reviewed_at,
+                "active_operation": None,
+                "active_job_id": None,
+            },
+        )
+        log_event(
+            logger,
+            logging.WARNING,
+            "task_enqueue_failed_rollback",
+            task_id=task_id,
+            operation="split",
+            job_id=job_id,
+        )
         raise
     except Exception as exc:
-        task.status = "REVIEW_PENDING"
-        db.commit()
-        raise HTTPException(status_code=500, detail=f"Failed to queue split: {str(exc)}")
+        _rollback_task_claim(
+            db,
+            task_id=task_id,
+            operation="split",
+            active_job_id=job_id,
+            rollback_updates={
+                "status": previous_status,
+                "reviewed_at": previous_reviewed_at,
+                "active_operation": None,
+                "active_job_id": None,
+            },
+        )
+        log_event(
+            logger,
+            logging.ERROR,
+            "task_enqueue_exception_rollback",
+            task_id=task_id,
+            operation="split",
+            job_id=job_id,
+            error=str(exc),
+        )
+        raise HTTPException(status_code=500, detail=f"Failed to queue split: {str(exc)}") from exc
+
+    log_event(
+        logger,
+        logging.INFO,
+        "task_enqueued",
+        task_id=task_id,
+        operation="split",
+        job_id=job.id,
+        deduplicated=bool(deduplicated),
+    )
+    return {"status": "REVIEW_APPROVED", "job_id": job.id, "deduplicated": bool(deduplicated)}
 
 
 @router.post("/tasks/{task_id}/return-to-review")
@@ -532,11 +965,43 @@ def return_to_review(task_id: str, request: Request, db: Session = Depends(get_d
     if task.status != "TIMELINE_READY":
         raise HTTPException(status_code=409, detail="Task not in TIMELINE_READY state")
 
-    FileService.delete_split_assets(task_id)
+    try:
+        FileService.delete_split_assets(task_id)
+    except Exception as exc:
+        log_event(
+            logger,
+            logging.ERROR,
+            "return_to_review_cleanup_failed",
+            task_id=task_id,
+            error=str(exc),
+        )
+        raise HTTPException(status_code=500, detail=f"Failed to cleanup split assets: {exc}") from exc
+
+    rows = (
+        db.query(Task)
+        .filter(Task.id == task_id, Task.status == "TIMELINE_READY")
+        .update(
+            {
+                "status": "REVIEW_PENDING",
+                "total_scenes": None,
+                "active_operation": None,
+                "active_job_id": None,
+            },
+            synchronize_session=False,
+        )
+    )
+    if rows != 1:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Task not in TIMELINE_READY state")
+
     db.query(Scene).filter(Scene.task_id == task_id).delete()
-    task.status = "REVIEW_PENDING"
-    task.total_scenes = None
     db.commit()
+    log_event(
+        logger,
+        logging.INFO,
+        "return_to_review_completed",
+        task_id=task_id,
+    )
     return {"success": True}
 
 

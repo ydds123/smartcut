@@ -4,6 +4,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Button } from '@/components/ui/button'
 import { useDeleteTask, useProcessTask, useStartReview } from '@/hooks/useTasks'
 import { useUIStore } from '@/stores/uiStore'
+import { taskService } from '@/services/taskService'
 import {
   DEFAULT_PROCESSING_SETTINGS,
   loadProcessingSettings,
@@ -11,7 +12,7 @@ import {
   type ProcessingPanelSettings,
 } from './processingConfigSettings'
 import { ProcessingConfigModal } from './ProcessingConfigModal'
-import type { Task } from '@/types/task'
+import type { ProcessingConfigMeta, Task } from '@/types/task'
 
 interface TaskListProps {
   tasks: Task[]
@@ -40,9 +41,26 @@ export function TaskList({
   const [processingSettings, setProcessingSettings] = useState<ProcessingPanelSettings>(
     DEFAULT_PROCESSING_SETTINGS
   )
+  const [processingConfigMeta, setProcessingConfigMeta] = useState<ProcessingConfigMeta | null>(null)
 
   useEffect(() => {
-    setProcessingSettings(loadProcessingSettings())
+    let disposed = false
+    const loadMeta = async () => {
+      try {
+        const meta = await taskService.getProcessingConfigMeta()
+        if (disposed) return
+        setProcessingConfigMeta(meta)
+        setProcessingSettings(loadProcessingSettings(meta))
+      } catch {
+        if (disposed) return
+        setProcessingConfigMeta(null)
+        setProcessingSettings(loadProcessingSettings())
+      }
+    }
+    void loadMeta()
+    return () => {
+      disposed = true
+    }
   }, [])
 
   const selectedVisibleCount = tasks.filter((task) => selectedTaskIds.has(task.id)).length
@@ -68,7 +86,10 @@ export function TaskList({
   }
 
   const handleStartReview = (taskId: string) => {
-    startReview.mutate(taskId)
+    startReview.mutate({
+      id: taskId,
+      options: toProcessTaskOptions(processingSettings),
+    })
   }
 
   const handleOpenReview = (taskId: string) => {
@@ -88,21 +109,25 @@ export function TaskList({
           <span className="text-[var(--sc-text-muted)]">已选择 {selectedTaskIds.size} 项</span>
         </div>
         <div className="flex items-center justify-end gap-2">
-          <button
+          <Button
             type="button"
+            size="sm"
+            variant="secondary"
             onClick={onAddSource}
-            className="sc-btn sc-btn-secondary h-8 gap-1 px-4"
+            className="h-8 gap-1 px-4"
           >
             <span className="text-base leading-none">+</span>
             添加来源
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
+            size="sm"
+            variant="secondary"
             onClick={() => setIsConfigOpen(true)}
-            className="sc-btn sc-btn-secondary h-8 px-4"
+            className="h-8 px-4"
           >
             参数配置
-          </button>
+          </Button>
           <Button
             size="sm"
             variant="danger"
@@ -122,13 +147,14 @@ export function TaskList({
         </div>
       ) : (
         <div className="sc-table-shell flex flex-1 min-h-0 flex-col overflow-hidden rounded-lg">
-          <div className="sc-table-header grid grid-cols-[32px_2.8fr_1.2fr_0.6fr_0.9fr_1fr] items-center gap-x-3 px-3 py-2 text-sm font-semibold">
+          <div className="sc-table-header grid grid-cols-[32px_2.5fr_1.2fr_80px_64px_0.9fr_1.8fr] items-center gap-x-2.5 px-3 py-2 text-sm font-semibold">
             <div />
-            <div>任务名称</div>
-            <div>状态 / 进度</div>
-            <div>镜头数</div>
-            <div>上传时间</div>
-            <div>操作</div>
+            <div className="px-1.5">任务名称</div>
+            <div className="px-1.5">状态 / 进度</div>
+            <div className="px-1.5">视频时长</div>
+            <div className="px-1.5">镜头数</div>
+            <div className="px-1.5">上传时间</div>
+            <div className="px-1.5">操作</div>
           </div>
 
           <div className="flex-1 min-h-0 overflow-y-auto">
@@ -154,6 +180,7 @@ export function TaskList({
       <ProcessingConfigModal
         isOpen={isConfigOpen}
         initialSettings={processingSettings}
+        configMeta={processingConfigMeta}
         onClose={() => setIsConfigOpen(false)}
         onSave={(nextSettings) => setProcessingSettings(nextSettings)}
       />

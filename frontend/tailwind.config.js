@@ -49,23 +49,23 @@ export default {
         'border-light': tailwindColors['border-light'],
         'border-focus': tailwindColors['border-focus'],
 
-        // 状态背景
-        'success-bg': '#E6FFEB',
-        'warning-bg': '#FFF7E8',
-        'danger-bg': '#FFECE8',
-        'info-bg': '#E8F3FF',
+        // 状态背景（暗色主题）
+        'success-bg': tailwindColors['success-bg'],
+        'warning-bg': tailwindColors['warning-bg'],
+        'danger-bg': tailwindColors['danger-bg'],
+        'info-bg': tailwindColors['info-bg'],
 
-        // 状态文字
-        'success-text': '#0F766E',
-        'warning-text': '#9A5700',
-        'danger-text': '#B91C1C',
-        'info-text': '#1D4ED8',
+        // 状态文字（暗色主题）
+        'success-text': tailwindColors['success-text'],
+        'warning-text': tailwindColors['warning-text'],
+        'danger-text': tailwindColors['danger-text'],
+        'info-text': tailwindColors['info-text'],
 
-        // 状态边框
-        'success-border': '#00B42A',
-        'warning-border': '#FF7D00',
-        'danger-border': '#F53F3F',
-        'info-border': '#91B4FF',
+        // 状态边框（暗色主题）
+        'success-border': tailwindColors['success-border'],
+        'warning-border': tailwindColors['warning-border'],
+        'danger-border': tailwindColors['danger-border'],
+        'info-border': tailwindColors['info-border'],
       },
 
       // 字体

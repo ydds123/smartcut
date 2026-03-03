@@ -29,7 +29,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
       secondary:
         'border border-[var(--sc-border-subtle)] bg-[var(--sc-bg-surface)] text-[var(--sc-text-primary)] hover:bg-[var(--sc-bg-elevated)]',
       danger:
-        'border border-transparent bg-[#d1434a] text-white hover:bg-[#bf3a41]',
+        'border border-[var(--sc-danger-border)] bg-[var(--sc-danger-bg)] text-[var(--sc-danger-text)] hover:bg-[var(--sc-danger-bg-hover)]',
       ghost: 'text-[var(--sc-text-secondary)] hover:bg-[var(--sc-bg-elevated)] hover:text-[var(--sc-text-primary)]',
     }
 

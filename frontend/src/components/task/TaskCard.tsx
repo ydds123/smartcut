@@ -25,12 +25,12 @@ export const TaskCard = memo(function TaskCard({
   const deleteTask = useDeleteTask()
   const processTask = useProcessTask()
   const startReview = useStartReview()
-  const { progress, status, totalScenes } = useTaskProgress(task.id, task.status)
+  const { progress, status, totalScenes } = useTaskProgress(task.id, task.status, task.progress)
   const liveStatus = status || task.status
 
-  const displayProgress = Math.min(100, Math.max(progress ?? 0, task.progress ?? 0))
+  const displayProgress = Math.max(0, Math.min(100, progress ?? task.progress ?? 0))
   const shotsCount = totalScenes ?? task.shotsCount ?? task.totalScenes
-  const isProcessing = ['PROCESSING', 'QUEUED', 'DETECTING', 'SPLITTING'].includes(liveStatus)
+  const isProcessing = ['PROCESSING', 'QUEUED', 'DETECTING', 'REVIEW_APPROVED', 'SPLITTING'].includes(liveStatus)
 
   const handleDelete = () => {
     if (confirm(`确定要删除任务 "${task.displayName}" 吗？`)) {
@@ -67,10 +67,10 @@ export const TaskCard = memo(function TaskCard({
             className="mt-1"
           />
           <div className="min-w-0 flex-1">
-            <h3 className="truncate text-base font-semibold text-gray-900" title={task.displayName}>
+            <h3 className="truncate text-base font-semibold text-[var(--sc-text-primary)]" title={task.displayName}>
               {task.displayName}
             </h3>
-            <p className="text-xs text-gray-500">{uploadService.formatFileSize(task.fileSize)}</p>
+            <p className="text-xs text-[var(--sc-text-muted)]">{uploadService.formatFileSize(task.fileSize)}</p>
           </div>
         </div>
         <StatusBadge status={liveStatus} />
@@ -80,7 +80,7 @@ export const TaskCard = memo(function TaskCard({
         <div className="space-y-3">
           {isProcessing && <Progress value={displayProgress} showLabel />}
 
-          <div className="text-sm text-gray-600">
+          <div className="text-sm text-[var(--sc-text-secondary)]">
             镜头数 <span className="font-medium">{shotsCount ?? '--'}</span>
           </div>
 

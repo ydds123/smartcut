@@ -5,69 +5,78 @@ export interface StatusLabelProps {
   className?: string
 }
 
+interface StatusLabelStyle {
+  label: string
+  textColor: string
+  bgColor: string
+  dotColor: string
+}
+
+const STATUS_LABEL_CONFIG: Record<TaskStatus, StatusLabelStyle> = {
+  PENDING: {
+    label: '等待中',
+    textColor: 'var(--sc-status-neutral-text)',
+    bgColor: 'var(--sc-status-neutral-bg)',
+    dotColor: 'var(--sc-status-neutral-dot)',
+  },
+  QUEUED: {
+    label: '排队中',
+    textColor: 'var(--sc-status-info-text)',
+    bgColor: 'var(--sc-status-info-bg)',
+    dotColor: 'var(--sc-status-info-dot)',
+  },
+  PROCESSING: {
+    label: '处理中',
+    textColor: 'var(--sc-status-info-text)',
+    bgColor: 'var(--sc-status-info-bg)',
+    dotColor: 'var(--sc-status-info-dot)',
+  },
+  COMPLETED: {
+    label: '已完成',
+    textColor: 'var(--sc-status-success-text)',
+    bgColor: 'var(--sc-status-success-bg)',
+    dotColor: 'var(--sc-status-success-dot)',
+  },
+  FAILED: {
+    label: '失败',
+    textColor: 'var(--sc-status-danger-text)',
+    bgColor: 'var(--sc-status-danger-bg)',
+    dotColor: 'var(--sc-status-danger-dot)',
+  },
+  DETECTING: {
+    label: '检测中',
+    textColor: 'var(--sc-status-info-text)',
+    bgColor: 'var(--sc-status-info-bg)',
+    dotColor: 'var(--sc-status-info-dot)',
+  },
+  REVIEW_PENDING: {
+    label: '待审核',
+    textColor: 'var(--sc-status-warning-text)',
+    bgColor: 'var(--sc-status-warning-bg)',
+    dotColor: 'var(--sc-status-warning-dot)',
+  },
+  REVIEW_APPROVED: {
+    label: '已确认',
+    textColor: 'var(--sc-status-approved-text)',
+    bgColor: 'var(--sc-status-approved-bg)',
+    dotColor: 'var(--sc-status-approved-dot)',
+  },
+  SPLITTING: {
+    label: '切分中',
+    textColor: 'var(--sc-status-info-text)',
+    bgColor: 'var(--sc-status-info-bg)',
+    dotColor: 'var(--sc-status-info-dot)',
+  },
+  TIMELINE_READY: {
+    label: '切分完成',
+    textColor: 'var(--sc-status-success-text)',
+    bgColor: 'var(--sc-status-success-bg)',
+    dotColor: 'var(--sc-status-success-dot)',
+  },
+}
+
 export function StatusLabel({ status, className = '' }: StatusLabelProps) {
-  const config = {
-    PENDING: {
-      label: '等待中',
-      textColor: '#b4bdd0',
-      bgColor: 'rgba(180, 189, 208, 0.14)',
-      dotColor: '#9aa4ba',
-    },
-    QUEUED: {
-      label: '排队中',
-      textColor: '#9cc0ff',
-      bgColor: 'rgba(91, 140, 255, 0.16)',
-      dotColor: '#6e9cff',
-    },
-    PROCESSING: {
-      label: '处理中',
-      textColor: '#9cc0ff',
-      bgColor: 'rgba(91, 140, 255, 0.16)',
-      dotColor: '#5b8cff',
-    },
-    COMPLETED: {
-      label: '已完成',
-      textColor: '#a7ddb5',
-      bgColor: 'rgba(82, 176, 113, 0.16)',
-      dotColor: '#65c083',
-    },
-    FAILED: {
-      label: '失败',
-      textColor: '#ffb8bf',
-      bgColor: 'rgba(244, 95, 108, 0.16)',
-      dotColor: '#f45f6c',
-    },
-    DETECTING: {
-      label: '检测中',
-      textColor: '#9cc0ff',
-      bgColor: 'rgba(91, 140, 255, 0.16)',
-      dotColor: '#6e9cff',
-    },
-    REVIEW_PENDING: {
-      label: '待审核',
-      textColor: '#f6ca79',
-      bgColor: 'rgba(230, 166, 62, 0.16)',
-      dotColor: '#f0b24c',
-    },
-    REVIEW_APPROVED: {
-      label: '已确认',
-      textColor: '#98d7de',
-      bgColor: 'rgba(70, 170, 178, 0.16)',
-      dotColor: '#65bdc6',
-    },
-    SPLITTING: {
-      label: '切分中',
-      textColor: '#9cc0ff',
-      bgColor: 'rgba(91, 140, 255, 0.16)',
-      dotColor: '#5b8cff',
-    },
-    TIMELINE_READY: {
-      label: '切分完成',
-      textColor: '#a7ddb5',
-      bgColor: 'rgba(82, 176, 113, 0.16)',
-      dotColor: '#65c083',
-    },
-  }[status as TaskStatus]
+  const config = STATUS_LABEL_CONFIG[status]
 
   return (
     <span

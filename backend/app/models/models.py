@@ -17,8 +17,11 @@ class Task(Base):
     display_name = Column(String, nullable=False)
     file_path = Column(String, nullable=False)
     file_size = Column(BigInteger)
+    duration_ms = Column(Integer, nullable=True)
     status = Column(String, default="PENDING")  # PENDING, QUEUED, PROCESSING, COMPLETED, FAILED, DETECTING, REVIEW_PENDING, REVIEW_APPROVED, SPLITTING, TIMELINE_READY
     progress = Column(Integer, default=0)
+    active_operation = Column(String, nullable=True)  # process, review, split
+    active_job_id = Column(String, nullable=True)  # 当前活跃 worker job id（防陈旧写入覆盖）
     total_scenes = Column(Integer, nullable=True)
     process_mode = Column(String, nullable=True)
     config_profile = Column(String, nullable=True)

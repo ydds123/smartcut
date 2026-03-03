@@ -37,10 +37,13 @@ def _ensure_tasks_columns():
     该项目当前以 create_all 为主，这里做轻量升级以避免手工迁移。
     """
     required_columns = {
+        "active_operation": "TEXT",
+        "active_job_id": "TEXT",
         "process_mode": "TEXT",
         "config_profile": "TEXT",
         "requested_config": "TEXT",
         "resolved_config": "TEXT",
+        "duration_ms": "INTEGER",
         "quality_flags": "TEXT",
         "suspect_segments": "TEXT",
         "tuning_history": "TEXT",

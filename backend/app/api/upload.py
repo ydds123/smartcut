@@ -43,6 +43,7 @@ async def upload_video(
         raise HTTPException(status_code=status_code, detail=message) from exc
 
     file_size = Path(file_path).stat().st_size if Path(file_path).exists() else (file.size or 0)
+    duration_ms = await run_in_threadpool(FileService.get_video_duration_ms, file_path)
     # 上传后立即尝试抽取首帧缩略图（失败不阻断）
     await run_in_threadpool(FileService.generate_upload_preview, file_path, task_id)
 
@@ -52,6 +53,7 @@ async def upload_video(
         display_name=displayName or file.filename,
         file_path=file_path,
         file_size=file_size,
+        duration_ms=duration_ms,
         status="PENDING"
     )
     db.add(task)

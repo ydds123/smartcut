@@ -132,7 +132,7 @@ export function UploadModal() {
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 sm:p-6">
       <div
-        className="absolute inset-0 bg-black/45"
+        className="absolute inset-0 bg-[var(--sc-modal-overlay)]"
         onClick={() => {
           if (!isUploading) {
             closeUploadModal()
@@ -146,10 +146,10 @@ export function UploadModal() {
         aria-labelledby="upload-modal-title"
         ref={modalRef}
         style={modalStyle}
-        className="relative w-full max-w-3xl overflow-hidden rounded-2xl border border-[var(--sc-border-subtle)] bg-[var(--sc-bg-app)] shadow-[0_18px_45px_rgba(7,9,14,0.46)]"
+        className="sc-modal-shell relative w-full max-w-3xl overflow-hidden"
       >
         <div
-          className={`flex items-center justify-between gap-4 border-b border-[var(--sc-border-subtle)] bg-[var(--sc-bg-panel)] px-6 py-3.5 ${dragging ? 'cursor-grabbing' : 'cursor-move'}`}
+          className={`sc-modal-header flex items-center justify-between gap-4 ${dragging ? 'cursor-grabbing' : 'cursor-move'}`}
           onPointerDown={onHandlePointerDown}
         >
           <h2 id="upload-modal-title" className="text-sm font-semibold text-[var(--sc-text-primary)]">
@@ -222,11 +222,11 @@ export function UploadModal() {
               <div className="mx-auto mt-6 max-w-md rounded-xl border border-[var(--sc-border-subtle)] bg-[var(--sc-bg-surface)] p-4">
                 <div className="mb-2 flex items-center justify-between text-sm text-[var(--sc-text-muted)]">
                   <span>上传中...</span>
-                  <span className="font-semibold text-primary">{progress}%</span>
+                  <span className="font-semibold text-[var(--sc-accent)]">{progress}%</span>
                 </div>
                 <div className="h-2 overflow-hidden rounded-full bg-[var(--sc-bg-contrast)]">
                   <div
-                    className="h-full rounded-full bg-primary transition-all duration-300"
+                    className="h-full rounded-full bg-[var(--sc-accent)] transition-all duration-300"
                     style={{ width: `${progress}%` }}
                   />
                 </div>

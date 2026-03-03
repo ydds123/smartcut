@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import type { ReviewScene } from '@/types/task'
 import { SceneListRail, type SceneListRailItem } from '@/components/shared/SceneListRail'
 import { backendBase, formatMs } from './reviewUtils'
@@ -22,6 +22,8 @@ export function ReviewShotSummaryPanel({
   isPlaying,
   onSelect,
 }: ReviewShotSummaryPanelProps) {
+  const [forceCenterKey, setForceCenterKey] = useState(0)
+
   const items = useMemo<SceneListRailItem[]>(
     () =>
       scenes.map((scene, index) => {
@@ -37,6 +39,15 @@ export function ReviewShotSummaryPanel({
     [scenes, taskId]
   )
 
+  const canLocateCurrent = selectedIndex !== null && items.length > 0
+
+  const handleLocateCurrent = () => {
+    if (!canLocateCurrent) {
+      return
+    }
+    setForceCenterKey((previous) => previous + 1)
+  }
+
   return (
     <SceneListRail
       items={items}
@@ -46,11 +57,23 @@ export function ReviewShotSummaryPanel({
       density="comfortable"
       isPlaying={isPlaying}
       enableAutoScrollOnSelection
-      autoScrollTrigger="playing"
+      autoScrollTrigger="always"
+      manualScrollCooldownMs={2500}
       showDurationBadge
       showFooterTotalDuration
       listTestId="review-scenes-grid"
       formatTimeLabel={formatMs}
+      forceCenterKey={forceCenterKey}
+      headerAction={(
+        <button
+          type="button"
+          onClick={handleLocateCurrent}
+          disabled={!canLocateCurrent}
+          className="sc-btn sc-btn-secondary h-7 px-2 text-[11px] disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          定位当前镜头
+        </button>
+      )}
     />
   )
 }

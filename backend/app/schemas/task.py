@@ -65,8 +65,11 @@ class TaskResponse(BaseModel):
     display_name: str
     file_path: str
     file_size: int
+    duration_ms: Optional[int] = None
     status: str
     progress: int
+    active_operation: Optional[str] = None
+    active_job_id: Optional[str] = None
     total_scenes: Optional[int]
     shots_count: Optional[int] = None
     preview_thumbnail_path: Optional[str] = None
@@ -106,4 +109,6 @@ class SceneResponse(BaseModel):
 class ProcessTaskResponse(BaseModel):
     status: str
     job_id: Optional[str] = None
+    deduplicated: bool = False
     resolved_config: Optional[dict[str, Any]] = None
+    config_meta: Optional[dict[str, Any]] = None

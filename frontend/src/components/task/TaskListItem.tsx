@@ -3,36 +3,7 @@ import { StatusLabel } from './StatusLabel'
 import { useTaskProgress } from '@/hooks/useTaskProgress'
 import type { Task } from '@/types/task'
 import { parseBackendDate } from '@/utils/dateTime'
-
-const backendBaseUrl = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000'
-
-function normalizeToDataPath(pathValue: string): string {
-  const normalized = pathValue.replace(/\\/g, '/')
-  const dataMarker = '/data/'
-  const markerIndex = normalized.indexOf(dataMarker)
-  if (markerIndex >= 0) {
-    return normalized.slice(markerIndex)
-  }
-  return normalized
-}
-
-function resolveAssetUrl(pathValue: string | null): string | null {
-  if (!pathValue) {
-    return null
-  }
-
-  const normalized = normalizeToDataPath(pathValue.trim())
-  if (!normalized) {
-    return null
-  }
-
-  if (normalized.startsWith('http://') || normalized.startsWith('https://')) {
-    return normalized
-  }
-
-  const withLeadingSlash = normalized.startsWith('/') ? normalized : `/${normalized}`
-  return `${backendBaseUrl}${withLeadingSlash}`
-}
+import { resolveAssetUrl } from '@/utils/assetUrl'
 
 function formatFileSize(bytes: number): string {
   if (bytes <= 0) {
@@ -55,6 +26,24 @@ function formatUploadTime(dateString: string): string {
     hour: '2-digit',
     minute: '2-digit',
   })
+}
+
+function formatDuration(durationMs?: number | null): string {
+  if (!durationMs || durationMs <= 0) {
+    return '--'
+  }
+
+  const totalSec = Math.floor(durationMs / 1000)
+  const hours = Math.floor(totalSec / 3600)
+  const minutes = Math.floor((totalSec % 3600) / 60)
+  const seconds = totalSec % 60
+
+  const mm = String(minutes).padStart(2, '0')
+  const ss = String(seconds).padStart(2, '0')
+  if (hours > 0) {
+    return `${hours}:${mm}:${ss}`
+  }
+  return `${mm}:${ss}`
 }
 
 export interface TaskListItemProps {
@@ -82,22 +71,21 @@ export function TaskListItem({
   isProcessing = false,
   isDeleting = false,
 }: TaskListItemProps) {
-  const { progress, status, totalScenes } = useTaskProgress(task.id, task.status)
+  const { progress, status, totalScenes } = useTaskProgress(task.id, task.status, task.progress)
 
   const liveStatus = status || task.status
-  const displayProgress = Math.min(100, Math.max(progress ?? 0, task.progress ?? 0))
+  const displayProgress = Math.max(0, Math.min(100, progress ?? task.progress ?? 0))
   const shotsCount = totalScenes ?? task.shotsCount ?? task.totalScenes
-  const showProgress = ['PROCESSING', 'QUEUED', 'DETECTING', 'SPLITTING'].includes(liveStatus)
+  const showProgress = ['PROCESSING', 'QUEUED', 'DETECTING', 'SPLITTING', 'REVIEW_APPROVED'].includes(liveStatus)
 
   const previewUrl = resolveAssetUrl(task.previewThumbnailPath ?? null)
   const isBusy = isProcessing || isDeleting
   const actionBtnClass = 'sc-btn sc-btn-secondary h-7 px-3 text-sm'
-  const dangerBtnClass =
-    'sc-btn h-7 px-3 text-sm border border-[#7a3641] bg-[rgba(244,95,108,0.14)] text-[#ffbcc2] hover:bg-[rgba(244,95,108,0.22)]'
+  const dangerBtnClass = 'sc-btn sc-btn-danger h-7 px-3 text-sm'
 
   return (
     <div
-      className={`sc-row grid grid-cols-[32px_2.8fr_1.2fr_0.6fr_0.9fr_1fr] items-center gap-x-3 px-3 py-2.5 ${
+      className={`sc-row grid grid-cols-[32px_2.5fr_1.2fr_80px_64px_0.9fr_1.8fr] items-center gap-x-2.5 px-3 py-2.5 ${
         selected ? 'sc-row-selected' : ''
       }`}
     >
@@ -109,7 +97,7 @@ export function TaskListItem({
         />
       </div>
 
-      <div className="min-w-0 pr-4">
+      <div className="min-w-0 px-1.5">
         <div className="flex min-w-0 items-center gap-3">
           <div className="h-[45px] w-20 flex-shrink-0 overflow-hidden rounded-md border border-[var(--sc-border-subtle)] bg-[var(--sc-bg-surface)]">
             {previewUrl ? (
@@ -144,13 +132,13 @@ export function TaskListItem({
         </div>
       </div>
 
-      <div className="min-w-0 text-sm">
+      <div className="min-w-0 px-1.5 text-sm">
         <StatusLabel status={liveStatus} className="text-sm" />
         {showProgress && (
           <div className="mt-1 flex items-center gap-2">
-            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-[var(--sc-bg-contrast)]">
+            <div className="h-1.5 max-w-[140px] flex-1 overflow-hidden rounded-full bg-[var(--sc-bg-contrast)]">
               <div
-                className="h-full rounded-full bg-primary transition-all duration-300"
+                className="h-full rounded-full bg-[var(--sc-accent)] transition-all duration-300"
                 style={{ width: `${displayProgress}%` }}
               />
             </div>
@@ -161,15 +149,19 @@ export function TaskListItem({
         )}
       </div>
 
-      <div className="text-sm text-[var(--sc-text-secondary)]">
+      <div className="px-1.5 text-sm text-[var(--sc-text-secondary)]">
+        {formatDuration(task.durationMs)}
+      </div>
+
+      <div className="px-1.5 text-sm text-[var(--sc-text-secondary)]">
         {shotsCount ?? '--'}
       </div>
 
-      <div className="text-sm text-[var(--sc-text-secondary)]">
+      <div className="px-1.5 text-sm text-[var(--sc-text-secondary)]">
         {formatUploadTime(task.createdAt)}
       </div>
 
-      <div className="min-w-0 text-sm" onClick={(event) => event.stopPropagation()}>
+      <div className="min-w-0 px-1.5 text-sm" onClick={(event) => event.stopPropagation()}>
         <div className="flex items-center gap-3 whitespace-nowrap text-[var(--sc-text-primary)]">
           {liveStatus === 'PENDING' && (
             <>
@@ -200,7 +192,7 @@ export function TaskListItem({
             </>
           )}
 
-          {(['QUEUED', 'PROCESSING', 'DETECTING', 'SPLITTING'] as const).includes(liveStatus as any) && (
+          {(['QUEUED', 'PROCESSING', 'DETECTING', 'SPLITTING', 'REVIEW_APPROVED'] as const).includes(liveStatus as any) && (
             <button
               type="button"
               onClick={() => onDelete(task.id)}

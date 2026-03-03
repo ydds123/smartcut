@@ -288,18 +288,19 @@ export function ReviewModal() {
 
   useEffect(() => {
     if (scenes.length === 0) {
-      setSelectedSceneIndex(null)
+      setSelectedSceneIndex((previous) => (previous === null ? previous : null))
       return
     }
 
     const index = scenes.findIndex((scene) => playheadMs >= scene.startMs && playheadMs < scene.endMs)
     if (index >= 0) {
-      setSelectedSceneIndex(index)
+      setSelectedSceneIndex((previous) => (previous === index ? previous : index))
       return
     }
 
     if (playheadMs >= scenes[scenes.length - 1].endMs) {
-      setSelectedSceneIndex(scenes.length - 1)
+      const lastIndex = scenes.length - 1
+      setSelectedSceneIndex((previous) => (previous === lastIndex ? previous : lastIndex))
     }
   }, [playheadMs, scenes])
 
@@ -633,6 +634,33 @@ export function ReviewModal() {
     zoomBounds,
   ])
 
+  const handleLocateTimelineLine = useCallback(() => {
+    if (effectiveDurationMs <= 0) {
+      addToast({
+        type: 'warning',
+        message: '暂无可用时间轴数据，无法定位',
+      })
+      return
+    }
+
+    const timeline = timelineRef.current
+    if (!timeline) {
+      addToast({
+        type: 'warning',
+        message: '时间轴尚未就绪，请稍后再试',
+      })
+      return
+    }
+
+    const moved = timeline.locatePlayheadInViewport({ behavior: 'smooth' })
+    if (!moved) {
+      addToast({
+        type: 'info',
+        message: '当前轴线已在视野中心附近',
+      })
+    }
+  }, [addToast, effectiveDurationMs])
+
   if (!isReviewModalOpen) {
     return null
   }
@@ -642,31 +670,17 @@ export function ReviewModal() {
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-[var(--sc-bg-app)] text-[var(--sc-text-primary)]">
-      <div className="flex items-center justify-between border-b border-[var(--sc-border-subtle)] bg-[var(--sc-bg-panel)] px-4 py-2.5">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <h2 className="text-sm font-semibold text-[var(--sc-text-primary)]">场景预览确认</h2>
-              {isDirty ? (
-                <span
-                  className="rounded px-1.5 py-0.5 text-xs text-[#f6c15f]"
-                  style={{ boxShadow: 'inset 0 0 0 1px rgba(246, 193, 95, 0.45)' }}
-                >
-                  已修改
-                </span>
-              ) : null}
-              {isTimelineReady ? (
-                <span
-                  className="rounded px-1.5 py-0.5 text-xs text-[var(--sc-accent)]"
-                  style={{ boxShadow: 'inset 0 0 0 1px rgba(91, 140, 255, 0.45)' }}
-                >
-                  已切分，可继续调整
-                </span>
-              ) : null}
-            </div>
-            {splitStatsSummary ? (
-              <p className="mt-0.5 text-xs text-[var(--sc-text-muted)]">{splitStatsSummary}</p>
-            ) : null}
+      <div className="sc-modal-header flex items-center justify-between">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <h2 className="text-sm font-semibold text-[var(--sc-text-primary)]">场景预览确认</h2>
+            {isDirty ? <span className="sc-tag sc-tag-warn">已修改</span> : null}
+            {isTimelineReady ? <span className="sc-tag sc-tag-accent">已切分，可继续调整</span> : null}
           </div>
+          {splitStatsSummary ? (
+            <p className="mt-0.5 text-xs text-[var(--sc-text-muted)]">{splitStatsSummary}</p>
+          ) : null}
+        </div>
 
         <div className="flex items-center gap-2">
           {isTimelineReady ? (
@@ -786,6 +800,14 @@ export function ReviewModal() {
                     className="sc-btn sc-btn-secondary h-7 px-2"
                   >
                     重置
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleLocateTimelineLine}
+                    disabled={effectiveDurationMs <= 0}
+                    className="sc-btn sc-btn-secondary h-7 px-2"
+                  >
+                    定位时间轴线
                   </button>
                 </div>
               </div>

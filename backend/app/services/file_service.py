@@ -250,6 +250,56 @@ class FileService:
         return None
 
     @staticmethod
+    def get_video_duration_ms(video_path: str, timeout_sec: int = 12) -> Optional[int]:
+        """
+        使用 ffprobe 获取视频时长（毫秒）。
+        失败时返回 None，不阻断上传流程。
+        """
+        cmd = [
+            "ffprobe",
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            str(Path(video_path).resolve()),
+        ]
+
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=timeout_sec,
+            )
+        except subprocess.TimeoutExpired:
+            logger.warning("获取视频时长超时: %s", video_path)
+            return None
+        except subprocess.CalledProcessError as exc:
+            stderr = (
+                exc.stderr.decode(errors="ignore")
+                if isinstance(exc.stderr, bytes)
+                else str(exc.stderr or "")
+            )
+            logger.warning("获取视频时长失败: %s, err=%s", video_path, stderr)
+            return None
+        except Exception as exc:  # pragma: no cover - defensive logging
+            logger.warning("获取视频时长异常: %s, err=%s", video_path, exc)
+            return None
+
+        try:
+            duration_sec = float((result.stdout or "").strip())
+        except ValueError:
+            logger.warning("视频时长解析失败: %s, raw=%r", video_path, result.stdout)
+            return None
+
+        if duration_sec <= 0:
+            return None
+        return int(duration_sec * 1000)
+
+    @staticmethod
     def delete_task_files(
         task_id: str,
         task_dir_path: Optional[str] = None,

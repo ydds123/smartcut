@@ -8,18 +8,7 @@ import type { Scene, SplitStats, TaskStatus } from '@/types/task'
 import { TimelineModalErrorBoundary } from '@/components/error/TimelineModalErrorBoundary'
 import { useDraggableModal } from '@/hooks/useDraggableModal'
 import { SceneListRail, type SceneListRailItem } from '@/components/shared/SceneListRail'
-
-const backendBaseUrl = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000'
-
-function normalizeToDataPath(pathValue: string): string {
-  const normalized = pathValue.replace(/\\/g, '/')
-  const dataMarker = '/data/'
-  const markerIndex = normalized.indexOf(dataMarker)
-  if (markerIndex >= 0) {
-    return normalized.slice(markerIndex)
-  }
-  return normalized
-}
+import { resolveAssetUrl } from '@/utils/assetUrl'
 
 type SceneMark = 'STAR' | 'REVIEW' | 'APPROVED'
 type TimelineMarkerKind = 'SCENE_BOUNDARY'
@@ -48,24 +37,6 @@ interface TimelineMarkerSelectionApi {
 }
 
 const PLAYBACK_RATES = [0.5, 0.75, 1, 1.25, 1.5, 2]
-
-function resolveAssetUrl(pathValue: string | null): string | null {
-  if (!pathValue) {
-    return null
-  }
-
-  const normalized = normalizeToDataPath(pathValue.trim())
-  if (!normalized) {
-    return null
-  }
-
-  if (normalized.startsWith('http://') || normalized.startsWith('https://')) {
-    return normalized
-  }
-
-  const withLeadingSlash = normalized.startsWith('/') ? normalized : `/${normalized}`
-  return `${backendBaseUrl}${withLeadingSlash}`
-}
 
 function formatTimeCode(ms: number): string {
   const totalSeconds = Math.max(0, Math.floor(ms / 1000))
@@ -1160,7 +1131,7 @@ export function TimelineModal() {
   return (
     <TimelineModalErrorBoundary>
       <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5">
-        <div className="absolute inset-0 bg-black/45" onClick={closeTimeline} />
+        <div className="absolute inset-0 bg-[var(--sc-modal-overlay)]" onClick={closeTimeline} />
 
         <div
           role="dialog"
@@ -1169,10 +1140,10 @@ export function TimelineModal() {
           data-testid="timeline-modal"
           ref={modalRef}
           style={modalStyle}
-          className="relative flex h-[86vh] min-h-[720px] w-full max-w-[1380px] flex-col overflow-hidden rounded-2xl border border-[var(--sc-border-subtle)] bg-[var(--sc-bg-app)] text-[var(--sc-text-primary)] shadow-[0_18px_45px_rgba(7,9,14,0.46)]"
+          className="sc-modal-shell relative flex h-[86vh] min-h-[720px] w-full max-w-[1380px] flex-col overflow-hidden text-[var(--sc-text-primary)]"
         >
           <div
-            className={`flex items-center justify-between border-b border-[var(--sc-border-subtle)] bg-[var(--sc-bg-panel)] px-6 py-3.5 ${dragging ? 'cursor-grabbing' : 'cursor-move'}`}
+            className={`sc-modal-header flex items-center justify-between ${dragging ? 'cursor-grabbing' : 'cursor-move'}`}
             onPointerDown={onHandlePointerDown}
           >
             <div className="min-w-0">
@@ -1221,7 +1192,7 @@ export function TimelineModal() {
             {loading ? (
               <div className="flex h-full items-center justify-center">
                 <div className="flex flex-col items-center gap-3">
-                  <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+                  <div className="h-8 w-8 animate-spin rounded-full border-4 border-[var(--sc-accent)] border-t-transparent" />
                   <p className="text-sm text-[var(--sc-text-muted)]">加载镜头中...</p>
                 </div>
               </div>
@@ -1229,7 +1200,7 @@ export function TimelineModal() {
               <div className="flex h-full items-center justify-center">
                 <Card className="sc-surface p-8 text-center !shadow-none">
                   <svg
-                    className="mx-auto mb-3 h-10 w-10 text-red-500"
+                    className="mx-auto mb-3 h-10 w-10 text-[var(--sc-danger)]"
                     fill="none"
                     stroke="currentColor"
                     viewBox="0 0 24 24"
