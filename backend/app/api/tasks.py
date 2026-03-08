@@ -48,6 +48,7 @@ ACTIVE_STATUSES_BY_OPERATION: dict[str, set[str]] = {
     "review": {"QUEUED", "DETECTING"},
     "split": {"REVIEW_APPROVED", "SPLITTING"},
 }
+REVIEW_STARTABLE_STATUSES = {"PENDING", "REVIEW_PENDING", "TIMELINE_READY"}
 RQ_ACTIVE_JOB_STATUSES = {"queued", "started", "deferred", "scheduled"}
 
 
@@ -253,22 +254,53 @@ def _limit_task_mutation(request: Request) -> None:
     )
 
 
-def _resolve_task_preview(task: Task, db: Session) -> str | None:
-    """优先使用上传首帧缩略图，其次回退到第一镜头缩略图。"""
-    upload_preview_path = Path(settings.UPLOAD_DIR) / f"{task.id}_preview.jpg"
-    if upload_preview_path.exists() and upload_preview_path.is_file():
-        return FileService.to_public_data_path(str(upload_preview_path))
+def _resolve_preview_ms_from_scene(start_ms: int | None, end_ms: int | None) -> int | None:
+    if start_ms is None or end_ms is None:
+        return None
+    try:
+        start = max(0, int(start_ms))
+        end = max(start, int(end_ms))
+    except Exception:
+        return None
+    return max(start, (start + end) // 2)
 
+
+def _resolve_preview_time_ms(task: Task, db: Session) -> int:
+    """与审核页右侧镜头列表一致：优先取第一镜头中点帧，否则回退到 0.5 秒。"""
+    # 1) 已切片场景：取 sequence_index=0 的中点帧
     first_scene = (
-        db.query(Scene.thumbnail_path)
+        db.query(Scene.start_ms, Scene.end_ms)
         .filter(Scene.task_id == task.id)
         .order_by(Scene.sequence_index.asc())
         .first()
     )
-    if first_scene and first_scene[0]:
-        return FileService.to_public_data_path(first_scene[0])
+    if first_scene:
+        from_scene = _resolve_preview_ms_from_scene(first_scene[0], first_scene[1])
+        if from_scene is not None:
+            return from_scene
 
-    return None
+    # 2) 审核场景：优先用户编辑，其次检测结果
+    detection_payload = _loads_json(task.detection_result, default={})
+    detection_scenes = detection_payload.get("scenes", []) if isinstance(detection_payload, dict) else []
+    for raw in (_loads_json(task.user_edited_scenes, default=[]), detection_scenes):
+        if not isinstance(raw, list) or not raw:
+            continue
+        first = raw[0]
+        if isinstance(first, dict):
+            from_review = _resolve_preview_ms_from_scene(first.get("start_ms"), first.get("end_ms"))
+            if from_review is not None:
+                return from_review
+
+    # 3) 回退：0.5秒（若视频更短则取末尾）
+    fallback = 500
+    if task.duration_ms and task.duration_ms > 0:
+        return min(fallback, max(0, int(task.duration_ms) - 1))
+    return fallback
+
+
+def _resolve_task_preview(task: Task, db: Session) -> str | None:
+    preview_ms = _resolve_preview_time_ms(task, db)
+    return f"/api/tasks/{task.id}/frame?t={preview_ms}"
 
 
 def _to_json(value: Any) -> str:
@@ -618,15 +650,19 @@ def start_review(
         raise HTTPException(status_code=404, detail="Task not found")
 
     config_meta = build_processing_config_meta()
-    if task.status != "PENDING":
-        if (
-            task.active_operation == "review"
-            and task.active_job_id
-            and task.status in ACTIVE_STATUSES_BY_OPERATION["review"]
-        ):
-            increment_counter("duplicate_enqueue_detected_total")
-            return _build_deduplicated_response(task, config_meta=config_meta)
-        raise HTTPException(status_code=409, detail="Task already processed")
+    previous_status = task.status
+    if (
+        task.active_operation == "review"
+        and task.active_job_id
+        and task.status in ACTIVE_STATUSES_BY_OPERATION["review"]
+    ):
+        increment_counter("duplicate_enqueue_detected_total")
+        return _build_deduplicated_response(task, config_meta=config_meta)
+    if task.status not in REVIEW_STARTABLE_STATUSES:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Task cannot start review in current state (current={task.status})",
+        )
 
     queue = _get_queue()
     job_id, _job_idempotent = _build_job_id(task_id, "review", http_request)
@@ -645,7 +681,7 @@ def start_review(
     claimed = _update_task_when_status_matches(
         db,
         task_id=task_id,
-        expected_statuses={"PENDING"},
+        expected_statuses=REVIEW_STARTABLE_STATUSES,
         updates={
             "status": "QUEUED",
             "active_operation": "review",
@@ -668,7 +704,10 @@ def start_review(
         ):
             increment_counter("duplicate_enqueue_detected_total")
             return _build_deduplicated_response(latest, config_meta=config_meta)
-        raise HTTPException(status_code=409, detail="Task already processed")
+        raise HTTPException(
+            status_code=409,
+            detail=f"Task cannot start review in current state (current={latest.status if latest else 'unknown'})",
+        )
 
     try:
         job, deduplicated = _enqueue_with_dedup(
@@ -686,7 +725,7 @@ def start_review(
             operation="review",
             active_job_id=job_id,
             rollback_updates={
-                "status": "PENDING",
+                "status": previous_status,
                 "active_operation": None,
                 "active_job_id": None,
             },
@@ -707,7 +746,7 @@ def start_review(
             operation="review",
             active_job_id=job_id,
             rollback_updates={
-                "status": "PENDING",
+                "status": previous_status,
                 "active_operation": None,
                 "active_job_id": None,
             },
@@ -743,15 +782,47 @@ def start_review(
 
 @router.get("/tasks/{task_id}/review-data")
 def get_review_data(task_id: str, db: Session = Depends(get_db)):
-    """返回检测结果（供 ReviewModal 展示）。"""
+    """返回分镜预览数据（供 ReviewModal 展示）。"""
     task = db.query(Task).filter(Task.id == task_id).first()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    if task.status not in ("REVIEW_PENDING", "REVIEW_APPROVED", "SPLITTING", "TIMELINE_READY"):
+
+    detection: dict[str, Any]
+    user_edited = _loads_json(task.user_edited_scenes)
+    review_available_statuses = {"REVIEW_PENDING", "REVIEW_APPROVED", "SPLITTING", "TIMELINE_READY"}
+    preview_fallback_statuses = {"COMPLETED", "FAILED", "ANALYZE_FAILED"}
+
+    if task.status in review_available_statuses:
+        detection = _loads_json(task.detection_result) or {}
+    elif task.status in preview_fallback_statuses:
+        detection = _loads_json(task.detection_result) or {}
+        if not isinstance(detection, dict):
+            detection = {}
+
+        timeline_scenes = (
+            db.query(Scene.start_ms, Scene.end_ms)
+            .filter(Scene.task_id == task_id)
+            .order_by(Scene.sequence_index.asc())
+            .all()
+        )
+        normalized_scenes = [
+            {"start_ms": int(start_ms), "end_ms": int(end_ms)}
+            for start_ms, end_ms in timeline_scenes
+        ]
+        if not isinstance(detection.get("scenes"), list) or not detection.get("scenes"):
+            detection["scenes"] = normalized_scenes
+
+        if detection.get("duration_ms") is None:
+            fallback_duration_ms = int(task.duration_ms or 0)
+            if fallback_duration_ms <= 0 and normalized_scenes:
+                fallback_duration_ms = int(normalized_scenes[-1]["end_ms"])
+            detection["duration_ms"] = max(0, fallback_duration_ms)
+
+        if not isinstance(detection.get("report"), dict):
+            detection["report"] = {}
+    else:
         raise HTTPException(status_code=409, detail="Review data not available")
 
-    detection = _loads_json(task.detection_result) or {}
-    user_edited = _loads_json(task.user_edited_scenes)
     return {
         "task_id": task_id,
         "detection_result": detection,
@@ -833,7 +904,12 @@ def reset_review_data_from_timeline(task_id: str, request: Request, db: Session 
 
 
 @router.post("/tasks/{task_id}/approve")
-def approve_review(task_id: str, request: Request, db: Session = Depends(get_db)):
+def approve_review(
+    task_id: str,
+    request: Request,
+    payload: ProcessTaskRequest = Body(default_factory=ProcessTaskRequest),
+    db: Session = Depends(get_db),
+):
     """用户确认场景，入队切分任务。"""
     _limit_task_mutation(request)
 
@@ -858,6 +934,19 @@ def approve_review(task_id: str, request: Request, db: Session = Depends(get_db)
     previous_reviewed_at = task.reviewed_at
     queue = _get_queue()
     job_id, _job_idempotent = _build_job_id(task_id, "split", request)
+    resolved_config_for_split: dict[str, Any] | None = None
+
+    override_config = _to_dict(payload.override_config) if payload.override_config else None
+    if override_config:
+        try:
+            resolved_config_for_split, _metadata = resolve_quality_config(
+                video_path=task.file_path,
+                mode=payload.mode,
+                profile=payload.profile,
+                override_config=override_config,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     claimed = _update_task_when_status_matches(
         db,
@@ -892,7 +981,7 @@ def approve_review(task_id: str, request: Request, db: Session = Depends(get_db)
             queue,
             job_id=job_id,
             func=split_video_after_review,
-            args=[task_id],
+            args=[task_id, resolved_config_for_split],
             job_timeout=600,
             result_ttl=3600,
         )

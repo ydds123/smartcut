@@ -291,8 +291,12 @@ export const taskService = {
     return convertToCamelCase(response.data)
   },
 
-  approveReview: async (id: string): Promise<{ status: string; jobId?: string; deduplicated?: boolean }> => {
-    const response = await apiClient.post<any>(`/api/tasks/${id}/approve`, undefined, {
+  approveReview: async (
+    id: string,
+    options?: ProcessTaskOptions
+  ): Promise<{ status: string; jobId?: string; deduplicated?: boolean }> => {
+    const payload = options ? convertToSnakeCase(options) : undefined
+    const response = await apiClient.post<any>(`/api/tasks/${id}/approve`, payload, {
       headers: {
         'Idempotency-Key': buildIdempotencyKey('split', id),
       },

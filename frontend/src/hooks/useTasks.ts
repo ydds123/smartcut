@@ -159,9 +159,17 @@ export function useSaveReviewData() {
 export function useApproveReview() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (id: string) => taskService.approveReview(id),
-    onSuccess: () => {
+    mutationFn: (payload: { id: string; options?: ProcessTaskOptions } | string) => {
+      if (typeof payload === 'string') {
+        return taskService.approveReview(payload)
+      }
+      return taskService.approveReview(payload.id, payload.options)
+    },
+    onSuccess: (_data, payload) => {
+      const taskId = typeof payload === 'string' ? payload : payload.id
       queryClient.invalidateQueries({ queryKey: ['tasks'] })
+      queryClient.invalidateQueries({ queryKey: ['tasks', taskId] })
+      queryClient.invalidateQueries({ queryKey: ['tasks', taskId, 'review-data'] })
     },
   })
 }

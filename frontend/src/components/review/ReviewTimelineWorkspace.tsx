@@ -886,15 +886,6 @@ function ReviewTimelineWorkspace({
                     })}
 
                     <div className="absolute inset-0 bg-gradient-to-b from-black/8 to-black/18" />
-
-                    <div className="absolute left-1.5 top-1 rounded bg-black/55 px-1 py-0.5 text-[10px] text-white/85">
-                      #{index + 1}
-                    </div>
-                    {width > 70 ? (
-                      <div className="absolute bottom-1 left-1.5 rounded bg-black/45 px-1 py-0.5 font-mono text-[10px] text-white/80">
-                        {formatMs(scene.startMs)}
-                      </div>
-                    ) : null}
                   </div>
                 )
               })}

@@ -1,7 +1,12 @@
 import { Checkbox } from '@/components/ui/checkbox'
 import { StatusLabel } from './StatusLabel'
 import { useTaskProgress } from '@/hooks/useTaskProgress'
-import type { Task } from '@/types/task'
+import {
+  DELETABLE_TASK_STATUSES,
+  PREVIEWABLE_TASK_STATUSES,
+  PROGRESS_VISIBLE_TASK_STATUSES,
+  type Task,
+} from '@/types/task'
 import { parseBackendDate } from '@/utils/dateTime'
 import { resolveAssetUrl } from '@/utils/assetUrl'
 
@@ -50,7 +55,6 @@ export interface TaskListItemProps {
   task: Task
   selected: boolean
   onSelectChange: (checked: boolean) => void
-  onViewResult: (taskId: string) => void
   onDelete: (taskId: string) => void
   onProcess: (taskId: string) => void
   onStartReview?: (taskId: string) => void
@@ -63,7 +67,6 @@ export function TaskListItem({
   task,
   selected,
   onSelectChange,
-  onViewResult,
   onDelete,
   onProcess,
   onStartReview,
@@ -76,12 +79,14 @@ export function TaskListItem({
   const liveStatus = status || task.status
   const displayProgress = Math.max(0, Math.min(100, progress ?? task.progress ?? 0))
   const shotsCount = totalScenes ?? task.shotsCount ?? task.totalScenes
-  const showProgress = ['PROCESSING', 'QUEUED', 'DETECTING', 'SPLITTING', 'REVIEW_APPROVED', 'ANALYZE_QUEUED', 'ANALYZING'].includes(liveStatus)
+  const showProgress = PROGRESS_VISIBLE_TASK_STATUSES.includes(liveStatus)
 
   const previewUrl = resolveAssetUrl(task.previewThumbnailPath ?? null)
   const isBusy = isProcessing || isDeleting
   const actionBtnClass = 'sc-btn sc-btn-secondary h-7 px-3 text-sm'
   const dangerBtnClass = 'sc-btn sc-btn-danger h-7 px-3 text-sm'
+  const canPreviewScenes = PREVIEWABLE_TASK_STATUSES.includes(liveStatus)
+  const canDelete = DELETABLE_TASK_STATUSES.includes(liveStatus)
 
   return (
     <div
@@ -163,6 +168,17 @@ export function TaskListItem({
 
       <div className="min-w-0 px-1.5 text-sm" onClick={(event) => event.stopPropagation()}>
         <div className="flex items-center gap-3 whitespace-nowrap text-[var(--sc-text-primary)]">
+          {canPreviewScenes && (
+            <button
+              type="button"
+              onClick={() => onOpenReview?.(task.id)}
+              disabled={isBusy}
+              className={actionBtnClass}
+            >
+              预览分镜
+            </button>
+          )}
+
           {liveStatus === 'PENDING' && (
             <>
               <button
@@ -181,18 +197,10 @@ export function TaskListItem({
               >
                 检测并审核
               </button>
-              <button
-                type="button"
-                onClick={() => onDelete(task.id)}
-                disabled={isBusy}
-                className={dangerBtnClass}
-              >
-                删除
-              </button>
             </>
           )}
 
-          {(['QUEUED', 'PROCESSING', 'DETECTING', 'SPLITTING', 'REVIEW_APPROVED', 'ANALYZE_QUEUED', 'ANALYZING'] as const).includes(liveStatus as any) && (
+          {canDelete && (
             <button
               type="button"
               onClick={() => onDelete(task.id)}
@@ -201,70 +209,6 @@ export function TaskListItem({
             >
               删除
             </button>
-          )}
-
-          {liveStatus === 'REVIEW_PENDING' && (
-            <>
-              <button
-                type="button"
-                onClick={() => onOpenReview?.(task.id)}
-                disabled={isBusy}
-                className={actionBtnClass}
-              >
-                查看并编辑
-              </button>
-              <button
-                type="button"
-                onClick={() => onDelete(task.id)}
-                disabled={isBusy}
-                className={dangerBtnClass}
-              >
-                删除
-              </button>
-            </>
-          )}
-
-          {liveStatus === 'TIMELINE_READY' && (
-            <button
-              type="button"
-              onClick={() => onViewResult(task.id)}
-              disabled={isBusy}
-              className={actionBtnClass}
-            >
-              查看工作台
-            </button>
-          )}
-
-          {liveStatus === 'COMPLETED' && (
-            <button
-              type="button"
-              onClick={() => onViewResult(task.id)}
-              disabled={isBusy}
-              className={actionBtnClass}
-            >
-              查看详情
-            </button>
-          )}
-
-          {(liveStatus === 'FAILED' || liveStatus === 'ANALYZE_FAILED') && (
-            <>
-              <button
-                type="button"
-                onClick={() => onViewResult(task.id)}
-                disabled={isBusy}
-                className={actionBtnClass}
-              >
-                查看详情
-              </button>
-              <button
-                type="button"
-                onClick={() => onDelete(task.id)}
-                disabled={isBusy}
-                className={dangerBtnClass}
-              >
-                删除
-              </button>
-            </>
           )}
         </div>
       </div>

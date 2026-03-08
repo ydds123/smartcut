@@ -7,7 +7,12 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { useDeleteTask, useProcessTask, useStartReview } from '@/hooks/useTasks'
 import { useUIStore } from '@/stores/uiStore'
 import { useTaskProgress } from '@/hooks/useTaskProgress'
-import type { Task } from '@/types/task'
+import {
+  DELETABLE_TASK_STATUSES,
+  PREVIEWABLE_TASK_STATUSES,
+  PROGRESS_VISIBLE_TASK_STATUSES,
+  type Task,
+} from '@/types/task'
 import { uploadService } from '@/services/uploadService'
 
 interface TaskCardProps {
@@ -21,7 +26,7 @@ export const TaskCard = memo(function TaskCard({
   selected,
   onSelectChange,
 }: TaskCardProps) {
-  const { openTimeline, openReviewModal } = useUIStore()
+  const { openReviewModal } = useUIStore()
   const deleteTask = useDeleteTask()
   const processTask = useProcessTask()
   const startReview = useStartReview()
@@ -30,7 +35,9 @@ export const TaskCard = memo(function TaskCard({
 
   const displayProgress = Math.max(0, Math.min(100, progress ?? task.progress ?? 0))
   const shotsCount = totalScenes ?? task.shotsCount ?? task.totalScenes
-  const isProcessing = ['PROCESSING', 'QUEUED', 'DETECTING', 'REVIEW_APPROVED', 'SPLITTING', 'ANALYZE_QUEUED', 'ANALYZING'].includes(liveStatus)
+  const isProcessing = PROGRESS_VISIBLE_TASK_STATUSES.includes(liveStatus)
+  const canPreviewScenes = PREVIEWABLE_TASK_STATUSES.includes(liveStatus)
+  const canDelete = DELETABLE_TASK_STATUSES.includes(liveStatus)
 
   const handleDelete = () => {
     if (confirm(`确定要删除任务 "${task.displayName}" 吗？`)) {
@@ -48,10 +55,6 @@ export const TaskCard = memo(function TaskCard({
 
   const handleOpenReview = () => {
     openReviewModal(task.id)
-  }
-
-  const handleViewResult = () => {
-    openTimeline(task.id)
   }
 
   const isBusy = processTask.isPending || deleteTask.isPending || startReview.isPending
@@ -85,6 +88,12 @@ export const TaskCard = memo(function TaskCard({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            {canPreviewScenes && (
+              <Button size="sm" variant="secondary" onClick={handleOpenReview} disabled={isBusy}>
+                预览分镜
+              </Button>
+            )}
+
             {liveStatus === 'PENDING' && (
               <>
                 <Button size="sm" onClick={handleProcess} isLoading={processTask.isPending}>
@@ -96,25 +105,7 @@ export const TaskCard = memo(function TaskCard({
               </>
             )}
 
-            {liveStatus === 'REVIEW_PENDING' && (
-              <Button size="sm" onClick={handleOpenReview} disabled={isBusy}>
-                查看并编辑
-              </Button>
-            )}
-
-            {liveStatus === 'TIMELINE_READY' && (
-              <Button size="sm" variant="secondary" onClick={handleViewResult} disabled={isBusy}>
-                查看工作台
-              </Button>
-            )}
-
-            {(liveStatus === 'COMPLETED' || liveStatus === 'FAILED' || liveStatus === 'ANALYZE_FAILED') && (
-              <Button size="sm" variant="secondary" onClick={handleViewResult} disabled={isBusy}>
-                查看详情
-              </Button>
-            )}
-
-            {(['PENDING', 'QUEUED', 'PROCESSING', 'FAILED', 'REVIEW_PENDING', 'REVIEW_APPROVED', 'SPLITTING', 'ANALYZE_QUEUED', 'ANALYZING', 'ANALYZE_FAILED'] as const).includes(liveStatus as any) && (
+            {canDelete && (
               <Button
                 size="sm"
                 variant="danger"

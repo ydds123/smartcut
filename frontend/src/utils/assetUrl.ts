@@ -21,15 +21,18 @@ function encodePathSegment(segment: string): string {
   }
 }
 
-function splitKnownQuery(pathValue: string): { path: string; query: string } {
-  const apiTokenMatch = pathValue.match(/([?&]api_token=[^#]*)$/)
-  if (!apiTokenMatch) {
-    return { path: pathValue, query: '' }
+function splitQuery(pathValue: string): { path: string; query: string } {
+  const hashIndex = pathValue.indexOf('#')
+  const withoutHash = hashIndex >= 0 ? pathValue.slice(0, hashIndex) : pathValue
+  const hash = hashIndex >= 0 ? pathValue.slice(hashIndex) : ''
+
+  const queryIndex = withoutHash.indexOf('?')
+  if (queryIndex < 0) {
+    return { path: withoutHash, query: hash }
   }
 
-  const rawQuery = apiTokenMatch[1]
-  const path = pathValue.slice(0, -rawQuery.length)
-  const query = rawQuery.startsWith('&') ? `?${rawQuery.slice(1)}` : rawQuery
+  const path = withoutHash.slice(0, queryIndex)
+  const query = `${withoutHash.slice(queryIndex)}${hash}`
   return { path, query }
 }
 
@@ -55,7 +58,7 @@ export function resolveAssetUrl(pathValue: string | null): string | null {
   }
 
   const withLeadingSlash = normalized.startsWith('/') ? normalized : `/${normalized}`
-  const { path, query } = splitKnownQuery(withLeadingSlash)
+  const { path, query } = splitQuery(withLeadingSlash)
   const encodedPath = encodePath(path)
   return `${backendBase}${encodedPath}${query}`
 }

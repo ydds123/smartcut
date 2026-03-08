@@ -1122,6 +1122,10 @@ export function TimelineModal() {
   }, [addToast, closeTimeline, isReturningToEdit, openReviewModal, queryClient, selectedTaskId])
 
   const isTimelineReady = taskStatus === 'TIMELINE_READY'
+  const isDetailStatus =
+    taskStatus === 'COMPLETED'
+    || taskStatus === 'FAILED'
+    || taskStatus === 'ANALYZE_FAILED'
   const splitStatsSummary = formatSplitStatsSummary(latestSplitStats)
 
   if (!isTimelineOpen) {
@@ -1158,6 +1162,15 @@ export function TimelineModal() {
               ) : null}
             </div>
             <div className="flex items-center gap-2" data-drag-ignore="true">
+              {isDetailStatus && (
+                <button
+                  type="button"
+                  onClick={closeTimeline}
+                  className="sc-btn sc-btn-secondary h-8 px-3"
+                >
+                  返回工作台
+                </button>
+              )}
               {isTimelineReady && (
                 <>
                   <button
@@ -1356,7 +1369,7 @@ export function TimelineModal() {
                       onClick={closeTimeline}
                       className="sc-btn sc-btn-secondary h-8 px-3"
                     >
-                      关闭
+                      {isDetailStatus ? '返回工作台' : '关闭'}
                     </button>
                   </div>
 

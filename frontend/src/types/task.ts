@@ -26,12 +26,42 @@ export const ACTIVE_TASK_STATUSES: TaskStatus[] = [
   'SPLITTING',
 ]
 
+export const PROGRESS_VISIBLE_TASK_STATUSES: TaskStatus[] = [
+  ...ACTIVE_TASK_STATUSES,
+]
+
 export const TERMINAL_TASK_STATUSES: TaskStatus[] = [
   'COMPLETED',
   'FAILED',
   'ANALYZE_FAILED',
   'REVIEW_PENDING',
   'TIMELINE_READY',
+]
+
+export const PREVIEWABLE_TASK_STATUSES: TaskStatus[] = [
+  'REVIEW_PENDING',
+  'REVIEW_APPROVED',
+  'SPLITTING',
+  'TIMELINE_READY',
+  'COMPLETED',
+  'FAILED',
+  'ANALYZE_FAILED',
+]
+
+export const DELETABLE_TASK_STATUSES: TaskStatus[] = [
+  'PENDING',
+  'QUEUED',
+  'PROCESSING',
+  'DETECTING',
+  'REVIEW_PENDING',
+  'REVIEW_APPROVED',
+  'SPLITTING',
+  'TIMELINE_READY',
+  'COMPLETED',
+  'FAILED',
+  'ANALYZE_QUEUED',
+  'ANALYZING',
+  'ANALYZE_FAILED',
 ]
 
 export interface ReviewScene {

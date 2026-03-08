@@ -33,7 +33,7 @@ export function TaskList({
   onAddSource,
   isBulkDeleting = false,
 }: TaskListProps) {
-  const { openTimeline, openReviewModal } = useUIStore()
+  const { openReviewModal } = useUIStore()
   const deleteTask = useDeleteTask()
   const processTask = useProcessTask()
   const startReview = useStartReview()
@@ -72,10 +72,6 @@ export function TaskList({
     if (task && confirm(`确定要删除任务 "${task.displayName}" 吗？`)) {
       deleteTask.mutate(taskId)
     }
-  }
-
-  const handleViewResult = (taskId: string) => {
-    openTimeline(taskId)
   }
 
   const handleProcess = (taskId: string) => {
@@ -164,7 +160,6 @@ export function TaskList({
                 task={task}
                 selected={selectedTaskIds.has(task.id)}
                 onSelectChange={(checked) => onToggleTask(task.id, checked)}
-                onViewResult={handleViewResult}
                 onDelete={handleDelete}
                 onProcess={handleProcess}
                 onStartReview={handleStartReview}

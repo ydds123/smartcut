@@ -3,7 +3,6 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useTasks } from './hooks/useTasks'
 import { UploadModal } from './components/upload/UploadModal'
 import { TaskList } from './components/task/TaskList'
-import { TimelineModal } from './components/timeline/TimelineModal'
 import { ReviewModal } from './components/review/ReviewModal'
 import { ToastContainer } from './components/ui/toast'
 import { taskService } from './services/taskService'
@@ -156,7 +155,7 @@ function App() {
       </main>
 
       <UploadModal />
-      <TimelineModal />
+      {/* TimelineModal 已按需求暂时停用（时间轴工作台功能下线） */}
       <ReviewModal />
       <ToastContainer />
     </div>

@@ -23,6 +23,8 @@ interface ProcessingConfigModalProps {
   configMeta: ProcessingConfigMeta | null
   onClose: () => void
   onSave: (settings: ProcessingPanelSettings) => void
+  submitLabel?: string
+  persistOnSave?: boolean
 }
 
 const FALLBACK_GROUPS: { id: ProcessingFieldGroup; label: string; description: string }[] = [
@@ -74,6 +76,8 @@ export function ProcessingConfigModal({
   configMeta,
   onClose,
   onSave,
+  submitLabel = '保存',
+  persistOnSave = true,
 }: ProcessingConfigModalProps) {
   const [draft, setDraft] = useState<ProcessingPanelSettings>(initialSettings)
   const { modalRef, modalStyle, onHandlePointerDown, dragging } = useDraggableModal({ isOpen })
@@ -149,7 +153,9 @@ export function ProcessingConfigModal({
       ...draft,
       enableOverride: true,
     }
-    persistProcessingSettings(settings)
+    if (persistOnSave) {
+      persistProcessingSettings(settings)
+    }
     onSave(settings)
     onClose()
   }
@@ -336,7 +342,7 @@ export function ProcessingConfigModal({
             恢复默认
           </button>
           <Button size="sm" onClick={handleSubmit}>
-            开始处理
+            {submitLabel}
           </Button>
         </div>
       </div>

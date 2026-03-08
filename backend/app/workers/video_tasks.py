@@ -500,6 +500,8 @@ def detect_scenes_for_review(
             task_id,
             job_id,
             detection_result=_to_json(detection_data),
+            # 重新检测成功后，以最新检测结果覆盖编辑草稿，避免沿用旧切分边界。
+            user_edited_scenes=_to_json(detection_data["scenes"]),
             total_scenes=len(scenes),
             status="REVIEW_PENDING",
             progress=100,
@@ -559,7 +561,7 @@ def detect_scenes_for_review(
         db.close()
 
 
-def split_video_after_review(task_id: str) -> dict:
+def split_video_after_review(task_id: str, resolved_config_override: dict[str, Any] | None = None) -> dict:
     """RQ entrypoint: 读取用户编辑后的场景列表，执行切分 + 缩略图，状态设为 TIMELINE_READY。"""
     job = get_current_job()
     job_id = job.id if job else None
@@ -621,6 +623,13 @@ def split_video_after_review(task_id: str) -> dict:
 
         video_path = task_ref.file_path
         active_config = _from_json(task_ref.resolved_config, default={})
+        if not isinstance(active_config, dict):
+            active_config = {}
+        if resolved_config_override:
+            # 单次临时参数：仅用于本轮切分，不回写为全局配置。
+            active_config = dict(resolved_config_override)
+        elif not active_config:
+            active_config = dict(DEFAULT_QUALITY_CONFIG)
 
         logger.info("开始切分任务 %s，共 %s 个场景", task_id, len(scenes))
         update_progress(0, "SPLITTING", force=True)
