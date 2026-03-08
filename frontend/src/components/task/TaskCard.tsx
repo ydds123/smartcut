@@ -30,7 +30,7 @@ export const TaskCard = memo(function TaskCard({
 
   const displayProgress = Math.max(0, Math.min(100, progress ?? task.progress ?? 0))
   const shotsCount = totalScenes ?? task.shotsCount ?? task.totalScenes
-  const isProcessing = ['PROCESSING', 'QUEUED', 'DETECTING', 'REVIEW_APPROVED', 'SPLITTING'].includes(liveStatus)
+  const isProcessing = ['PROCESSING', 'QUEUED', 'DETECTING', 'REVIEW_APPROVED', 'SPLITTING', 'ANALYZE_QUEUED', 'ANALYZING'].includes(liveStatus)
 
   const handleDelete = () => {
     if (confirm(`确定要删除任务 "${task.displayName}" 吗？`)) {
@@ -108,13 +108,13 @@ export const TaskCard = memo(function TaskCard({
               </Button>
             )}
 
-            {(liveStatus === 'COMPLETED' || liveStatus === 'FAILED') && (
+            {(liveStatus === 'COMPLETED' || liveStatus === 'FAILED' || liveStatus === 'ANALYZE_FAILED') && (
               <Button size="sm" variant="secondary" onClick={handleViewResult} disabled={isBusy}>
                 查看详情
               </Button>
             )}
 
-            {(['PENDING', 'QUEUED', 'PROCESSING', 'FAILED', 'REVIEW_PENDING', 'REVIEW_APPROVED', 'SPLITTING'] as const).includes(liveStatus as any) && (
+            {(['PENDING', 'QUEUED', 'PROCESSING', 'FAILED', 'REVIEW_PENDING', 'REVIEW_APPROVED', 'SPLITTING', 'ANALYZE_QUEUED', 'ANALYZING', 'ANALYZE_FAILED'] as const).includes(liveStatus as any) && (
               <Button
                 size="sm"
                 variant="danger"

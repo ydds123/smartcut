@@ -7,6 +7,9 @@ export type TaskStatus =
   | 'PROCESSING'
   | 'COMPLETED'
   | 'FAILED'
+  | 'ANALYZE_QUEUED'
+  | 'ANALYZING'
+  | 'ANALYZE_FAILED'
   | 'DETECTING'
   | 'REVIEW_PENDING'
   | 'REVIEW_APPROVED'
@@ -16,6 +19,8 @@ export type TaskStatus =
 export const ACTIVE_TASK_STATUSES: TaskStatus[] = [
   'QUEUED',
   'PROCESSING',
+  'ANALYZE_QUEUED',
+  'ANALYZING',
   'DETECTING',
   'REVIEW_APPROVED',
   'SPLITTING',
@@ -24,6 +29,7 @@ export const ACTIVE_TASK_STATUSES: TaskStatus[] = [
 export const TERMINAL_TASK_STATUSES: TaskStatus[] = [
   'COMPLETED',
   'FAILED',
+  'ANALYZE_FAILED',
   'REVIEW_PENDING',
   'TIMELINE_READY',
 ]

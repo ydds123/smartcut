@@ -98,6 +98,9 @@ const VALID_TASK_STATUSES = new Set<TaskStatus>([
   'PROCESSING',
   'COMPLETED',
   'FAILED',
+  'ANALYZE_QUEUED',
+  'ANALYZING',
+  'ANALYZE_FAILED',
   'DETECTING',
   'REVIEW_PENDING',
   'REVIEW_APPROVED',
@@ -158,7 +161,7 @@ function toProgressPayload(raw: any): ProgressStreamPayload | null {
   }
   const totalScenesRaw = raw.total_scenes ?? raw.totalScenes ?? null
   const totalScenes = typeof totalScenesRaw === 'number' || totalScenesRaw === null ? totalScenesRaw : null
-  const fallbackType = ['COMPLETED', 'FAILED', 'REVIEW_PENDING', 'TIMELINE_READY'].includes(statusRaw)
+  const fallbackType = ['COMPLETED', 'FAILED', 'ANALYZE_FAILED', 'REVIEW_PENDING', 'TIMELINE_READY'].includes(statusRaw)
     ? 'terminal'
     : 'progress'
 

@@ -43,6 +43,24 @@ const STATUS_LABEL_CONFIG: Record<TaskStatus, StatusLabelStyle> = {
     bgColor: 'var(--sc-status-danger-bg)',
     dotColor: 'var(--sc-status-danger-dot)',
   },
+  ANALYZE_QUEUED: {
+    label: 'AI排队中',
+    textColor: 'var(--sc-status-info-text)',
+    bgColor: 'var(--sc-status-info-bg)',
+    dotColor: 'var(--sc-status-info-dot)',
+  },
+  ANALYZING: {
+    label: 'AI分析中',
+    textColor: 'var(--sc-status-info-text)',
+    bgColor: 'var(--sc-status-info-bg)',
+    dotColor: 'var(--sc-status-info-dot)',
+  },
+  ANALYZE_FAILED: {
+    label: 'AI分析失败',
+    textColor: 'var(--sc-status-danger-text)',
+    bgColor: 'var(--sc-status-danger-bg)',
+    dotColor: 'var(--sc-status-danger-dot)',
+  },
   DETECTING: {
     label: '检测中',
     textColor: 'var(--sc-status-info-text)',
@@ -76,7 +94,13 @@ const STATUS_LABEL_CONFIG: Record<TaskStatus, StatusLabelStyle> = {
 }
 
 export function StatusLabel({ status, className = '' }: StatusLabelProps) {
-  const config = STATUS_LABEL_CONFIG[status]
+  const fallback: StatusLabelStyle = {
+    label: status || '未知状态',
+    textColor: 'var(--sc-text-secondary)',
+    bgColor: 'var(--sc-bg-surface)',
+    dotColor: 'var(--sc-text-muted)',
+  }
+  const config = STATUS_LABEL_CONFIG[status] ?? fallback
 
   return (
     <span

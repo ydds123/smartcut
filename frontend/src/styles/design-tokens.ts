@@ -192,6 +192,24 @@ export const statusConfig = {
     textColor: 'var(--sc-status-danger-text)',
     bgColor: 'var(--sc-status-danger-bg)',
   },
+  ANALYZE_QUEUED: {
+    label: 'AI排队中',
+    dotColor: 'var(--sc-status-info-dot)',
+    textColor: 'var(--sc-status-info-text)',
+    bgColor: 'var(--sc-status-info-bg)',
+  },
+  ANALYZING: {
+    label: 'AI分析中',
+    dotColor: 'var(--sc-status-info-dot)',
+    textColor: 'var(--sc-status-info-text)',
+    bgColor: 'var(--sc-status-info-bg)',
+  },
+  ANALYZE_FAILED: {
+    label: 'AI分析失败',
+    dotColor: 'var(--sc-status-danger-dot)',
+    textColor: 'var(--sc-status-danger-text)',
+    bgColor: 'var(--sc-status-danger-bg)',
+  },
   DETECTING: {
     label: '检测中',
     dotColor: 'var(--sc-status-info-dot)',

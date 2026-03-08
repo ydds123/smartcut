@@ -107,7 +107,10 @@ export function useTaskProgress(taskId: string, taskStatus?: string, taskProgres
       if (data.status !== previousStatus) {
         if (data.status === 'COMPLETED' && previousStatus !== 'COMPLETED') {
           playSound('complete')
-        } else if (data.status === 'FAILED' && previousStatus !== 'FAILED') {
+        } else if (
+          (data.status === 'FAILED' && previousStatus !== 'FAILED') ||
+          (data.status === 'ANALYZE_FAILED' && previousStatus !== 'ANALYZE_FAILED')
+        ) {
           playSound('error')
         }
         previousStatusRef.current = data.status as TaskStatus

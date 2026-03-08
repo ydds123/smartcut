@@ -76,7 +76,7 @@ export function TaskListItem({
   const liveStatus = status || task.status
   const displayProgress = Math.max(0, Math.min(100, progress ?? task.progress ?? 0))
   const shotsCount = totalScenes ?? task.shotsCount ?? task.totalScenes
-  const showProgress = ['PROCESSING', 'QUEUED', 'DETECTING', 'SPLITTING', 'REVIEW_APPROVED'].includes(liveStatus)
+  const showProgress = ['PROCESSING', 'QUEUED', 'DETECTING', 'SPLITTING', 'REVIEW_APPROVED', 'ANALYZE_QUEUED', 'ANALYZING'].includes(liveStatus)
 
   const previewUrl = resolveAssetUrl(task.previewThumbnailPath ?? null)
   const isBusy = isProcessing || isDeleting
@@ -192,7 +192,7 @@ export function TaskListItem({
             </>
           )}
 
-          {(['QUEUED', 'PROCESSING', 'DETECTING', 'SPLITTING', 'REVIEW_APPROVED'] as const).includes(liveStatus as any) && (
+          {(['QUEUED', 'PROCESSING', 'DETECTING', 'SPLITTING', 'REVIEW_APPROVED', 'ANALYZE_QUEUED', 'ANALYZING'] as const).includes(liveStatus as any) && (
             <button
               type="button"
               onClick={() => onDelete(task.id)}
@@ -246,7 +246,7 @@ export function TaskListItem({
             </button>
           )}
 
-          {liveStatus === 'FAILED' && (
+          {(liveStatus === 'FAILED' || liveStatus === 'ANALYZE_FAILED') && (
             <>
               <button
                 type="button"
