@@ -60,6 +60,37 @@ class SaveReviewDataRequest(BaseModel):
     scenes: list[ReviewScenePayload]
 
 
+class LocalPrecisionPreviewRequest(BaseModel):
+    anchor_scene_index: int = Field(ge=0)
+    radius: int = Field(default=2, ge=0, le=10)
+
+
+class LocalPrecisionTargetRange(BaseModel):
+    start_ms: int = Field(ge=0)
+    end_ms: int = Field(gt=0)
+    start_index: int = Field(ge=0)
+    end_index: int = Field(ge=0)
+
+    @model_validator(mode="after")
+    def validate_range(self):
+        if self.end_ms <= self.start_ms:
+            raise ValueError("end_ms must be greater than start_ms")
+        if self.end_index < self.start_index:
+            raise ValueError("end_index must be greater than or equal to start_index")
+        return self
+
+
+class LocalPrecisionProposal(BaseModel):
+    target_range: LocalPrecisionTargetRange
+    original_scenes: list[ReviewScenePayload]
+    proposed_scenes: list[ReviewScenePayload]
+    report: dict[str, Any]
+
+
+class LocalPrecisionPreviewResponse(LocalPrecisionProposal):
+    pass
+
+
 class TaskResponse(BaseModel):
     id: str
     display_name: str

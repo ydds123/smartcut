@@ -2,6 +2,8 @@ import apiClient from './api'
 import { incrementClientCounter } from '@/utils/telemetry'
 import type {
   DetectionResult,
+  LocalPrecisionPreviewRequest,
+  LocalPrecisionPreviewResponse,
   ProgressStreamPayload,
   ProcessTaskOptions,
   ProcessTaskResult,
@@ -277,6 +279,17 @@ export const taskService = {
     await apiClient.put(`/api/tasks/${id}/review-data`, {
       scenes: scenes.map((s) => convertToSnakeCase(s)),
     })
+  },
+
+  localPrecisionPreview: async (
+    id: string,
+    payload: LocalPrecisionPreviewRequest
+  ): Promise<LocalPrecisionPreviewResponse> => {
+    const response = await apiClient.post<any>(
+      `/api/tasks/${id}/review/local-precision-preview`,
+      convertToSnakeCase(payload)
+    )
+    return convertToCamelCase(response.data)
   },
 
   resetReviewFromTimeline: async (

@@ -75,6 +75,27 @@ export interface DetectionResult {
   report: Record<string, unknown>
 }
 
+export interface LocalPrecisionTargetRange {
+  startMs: number
+  endMs: number
+  startIndex: number
+  endIndex: number
+}
+
+export interface LocalPrecisionPreviewRequest {
+  anchorSceneIndex: number
+  radius: number
+}
+
+export interface LocalPrecisionPreviewResponse {
+  targetRange: LocalPrecisionTargetRange
+  originalScenes: ReviewScene[]
+  proposedScenes: ReviewScene[]
+  report: Record<string, unknown>
+}
+
+export type LocalPrecisionProposal = LocalPrecisionPreviewResponse
+
 export type DetectorMode = 'content' | 'adaptive'
 export type DetectionMode = 'fast' | 'precision'
 export type ProcessingMode = 'manual'

@@ -62,7 +62,7 @@ export function UploadModal() {
       startUpload()
 
       try {
-        await uploadService.upload(
+        const uploadedTask = await uploadService.upload(
           {
             displayName: file.name,
             file,
@@ -70,11 +70,19 @@ export function UploadModal() {
           ({ percentage }) => updateProgress(percentage)
         )
 
-        addToast({
-          type: 'success',
-          message: `上传成功: ${file.name}`,
-        })
-        playSound('success')
+        if (uploadedTask.status === 'FAILED') {
+          addToast({
+            type: 'warning',
+            message: `上传成功，但自动检测分镜失败，可在列表中重试预览：${file.name}`,
+          })
+          playSound('error')
+        } else {
+          addToast({
+            type: 'success',
+            message: `上传成功，已开始检测分镜：${file.name}`,
+          })
+          playSound('success')
+        }
         await queryClient.invalidateQueries({ queryKey: ['tasks'] })
         closeUploadModal()
       } catch {

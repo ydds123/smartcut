@@ -4,16 +4,16 @@ import { StatusBadge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
 import { Checkbox } from '@/components/ui/checkbox'
-import { useDeleteTask, useProcessTask, useStartReview } from '@/hooks/useTasks'
+import { useDeleteTask, useStartReview } from '@/hooks/useTasks'
 import { useUIStore } from '@/stores/uiStore'
 import { useTaskProgress } from '@/hooks/useTaskProgress'
 import {
   DELETABLE_TASK_STATUSES,
-  PREVIEWABLE_TASK_STATUSES,
   PROGRESS_VISIBLE_TASK_STATUSES,
   type Task,
 } from '@/types/task'
 import { uploadService } from '@/services/uploadService'
+import { canOpenTaskPreview, canRetryTaskPreview } from './taskPreviewState'
 
 interface TaskCardProps {
   task: Task
@@ -28,25 +28,26 @@ export const TaskCard = memo(function TaskCard({
 }: TaskCardProps) {
   const { openReviewModal } = useUIStore()
   const deleteTask = useDeleteTask()
-  const processTask = useProcessTask()
   const startReview = useStartReview()
-  const { progress, status, totalScenes } = useTaskProgress(task.id, task.status, task.progress)
+  const { progress, status, totalScenes } = useTaskProgress(
+    task.id,
+    task.status,
+    task.progress,
+    task.resolvedConfig
+  )
   const liveStatus = status || task.status
 
   const displayProgress = Math.max(0, Math.min(100, progress ?? task.progress ?? 0))
   const shotsCount = totalScenes ?? task.shotsCount ?? task.totalScenes
   const isProcessing = PROGRESS_VISIBLE_TASK_STATUSES.includes(liveStatus)
-  const canPreviewScenes = PREVIEWABLE_TASK_STATUSES.includes(liveStatus)
+  const canPreviewScenes = canOpenTaskPreview(task, liveStatus)
+  const canRetryPreview = canRetryTaskPreview(task, liveStatus)
   const canDelete = DELETABLE_TASK_STATUSES.includes(liveStatus)
 
   const handleDelete = () => {
     if (confirm(`确定要删除任务 "${task.displayName}" 吗？`)) {
       deleteTask.mutate(task.id)
     }
-  }
-
-  const handleProcess = () => {
-    processTask.mutate(task.id)
   }
 
   const handleStartReview = () => {
@@ -57,7 +58,7 @@ export const TaskCard = memo(function TaskCard({
     openReviewModal(task.id)
   }
 
-  const isBusy = processTask.isPending || deleteTask.isPending || startReview.isPending
+  const isBusy = deleteTask.isPending || startReview.isPending
 
   return (
     <Card variant="bordered" className="transition-shadow hover:shadow-md">
@@ -94,15 +95,10 @@ export const TaskCard = memo(function TaskCard({
               </Button>
             )}
 
-            {liveStatus === 'PENDING' && (
-              <>
-                <Button size="sm" onClick={handleProcess} isLoading={processTask.isPending}>
-                  直接处理
-                </Button>
-                <Button size="sm" variant="secondary" onClick={handleStartReview} isLoading={startReview.isPending}>
-                  检测并审核
-                </Button>
-              </>
+            {canRetryPreview && (
+              <Button size="sm" variant="secondary" onClick={handleStartReview} isLoading={startReview.isPending}>
+                重试预览
+              </Button>
             )}
 
             {canDelete && (

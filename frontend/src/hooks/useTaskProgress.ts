@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { ACTIVE_TASK_STATUSES, TERMINAL_TASK_STATUSES, type TaskStatus } from '@/types/task'
+import { ACTIVE_TASK_STATUSES, TERMINAL_TASK_STATUSES, type ProcessingConfig, type TaskStatus } from '@/types/task'
 import { taskService } from '@/services/taskService'
 import { playSound } from '@/utils/soundPlayer'
+import { buildProgressPresentation } from './progressPresentation'
 
 /**
  * SSE 进度 Hook（带平滑进度更新）
@@ -11,7 +12,12 @@ import { playSound } from '@/utils/soundPlayer'
 const ACTIVE_PROGRESS_STATUSES = new Set<TaskStatus>(ACTIVE_TASK_STATUSES)
 const TERMINAL_PROGRESS_STATUSES = new Set<TaskStatus>(TERMINAL_TASK_STATUSES)
 
-export function useTaskProgress(taskId: string, taskStatus?: string, taskProgress?: number) {
+export function useTaskProgress(
+  taskId: string,
+  taskStatus?: string,
+  taskProgress?: number,
+  resolvedConfig?: Partial<ProcessingConfig> | null
+) {
   const [progress, setProgress] = useState(0)
   const [status, setStatus] = useState<TaskStatus>(
     (taskStatus as TaskStatus) || 'PENDING'
@@ -19,6 +25,8 @@ export function useTaskProgress(taskId: string, taskStatus?: string, taskProgres
   const [totalScenes, setTotalScenes] = useState<number | null>(null)
   const [isConnected, setIsConnected] = useState(false)
   const [error, setError] = useState<Error | null>(null)
+  const [lastProgressAt, setLastProgressAt] = useState(() => Date.now())
+  const [nowMs, setNowMs] = useState(() => Date.now())
 
   // 跟踪之前的状态，用于检测状态变化
   const previousStatusRef = useRef<TaskStatus>('PENDING')
@@ -32,6 +40,7 @@ export function useTaskProgress(taskId: string, taskStatus?: string, taskProgres
     // 同步外部任务状态，避免 SSE 中断后状态与列表状态不一致
     if (taskStatus) {
       setStatus(taskStatus as TaskStatus)
+      setLastProgressAt(Date.now())
       if (typeof taskProgress === 'number' && Number.isFinite(taskProgress)) {
         const clamped = Math.max(0, Math.min(100, Math.round(taskProgress)))
         smoothedProgress.current = clamped
@@ -42,6 +51,21 @@ export function useTaskProgress(taskId: string, taskStatus?: string, taskProgres
       }
     }
   }, [taskStatus, taskProgress])
+
+  useEffect(() => {
+    if (!ACTIVE_PROGRESS_STATUSES.has(status)) {
+      setNowMs(Date.now())
+      return
+    }
+
+    const timer = window.setInterval(() => {
+      setNowMs(Date.now())
+    }, 1000)
+
+    return () => {
+      window.clearInterval(timer)
+    }
+  }, [status])
 
   useEffect(() => {
     // 仅对排队中/处理中任务建立 SSE，避免 PENDING 任务占用连接
@@ -101,6 +125,7 @@ export function useTaskProgress(taskId: string, taskStatus?: string, taskProgres
       setTotalScenes(data.totalScenes ?? null)
       setIsConnected(true)
       setError(null)
+      setLastProgressAt(Date.now())
 
       // 检测状态变化并播放提示音
       const previousStatus = previousStatusRef.current
@@ -147,10 +172,17 @@ export function useTaskProgress(taskId: string, taskStatus?: string, taskProgres
     }
   }, [taskId, taskStatus])
 
-  return {
+  const presentation = buildProgressPresentation({
     progress,
     status,
+    resolvedConfig,
     totalScenes,
+    lastProgressAt,
+    nowMs,
+  })
+
+  return {
+    ...presentation,
     isConnected,
     error,
   }

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, BigInteger, DateTime, ForeignKey, Text
+from sqlalchemy import Boolean, Column, String, Integer, BigInteger, DateTime, ForeignKey, Text, Float
 from sqlalchemy.ext.declarative import declarative_base
 from datetime import datetime, timezone
 
@@ -62,3 +62,40 @@ class ErrorLog(Base):
     error_message = Column(Text)
     stack_trace = Column(Text)
     created_at = Column(DateTime, default=utc_now_naive)
+
+
+class AnalysisSettings(Base):
+    __tablename__ = "analysis_settings"
+
+    id = Column(String, primary_key=True, default="default")
+    provider = Column(String, nullable=False, default="gemini")
+    base_url = Column(String, nullable=False, default="https://generativelanguage.googleapis.com")
+    model = Column(String, nullable=False, default="gemini-3.1-flash-lite-preview")
+    prompt_template = Column(Text, nullable=False, default="")
+    analysis_enabled = Column(Boolean, nullable=False, default=False)
+    request_timeout_sec = Column(Integer, nullable=False, default=180)
+    created_at = Column(DateTime, default=utc_now_naive)
+    updated_at = Column(DateTime, default=utc_now_naive, onupdate=utc_now_naive)
+
+
+class AnalysisRun(Base):
+    __tablename__ = "analysis_runs"
+
+    id = Column(String, primary_key=True)
+    task_id = Column(String, ForeignKey("tasks.id"), nullable=False, index=True)
+    analysis_type = Column(String, nullable=False, default="story_intro")
+    status = Column(String, nullable=False, default="QUEUED")  # QUEUED | RUNNING | SUCCEEDED | FAILED
+    provider_snapshot = Column(String, nullable=True)
+    base_url_snapshot = Column(String, nullable=True)
+    model_snapshot = Column(String, nullable=True)
+    request_timeout_sec_snapshot = Column(Integer, nullable=True)
+    prompt_snapshot = Column(Text, nullable=True)
+    result_json = Column(Text, nullable=True)
+    raw_response_json = Column(Text, nullable=True)
+    error_message = Column(Text, nullable=True)
+    retry_count = Column(Integer, nullable=False, default=0)
+    usage_json = Column(Text, nullable=True)
+    estimated_cost = Column(Float, nullable=True)
+    created_at = Column(DateTime, default=utc_now_naive)
+    updated_at = Column(DateTime, default=utc_now_naive, onupdate=utc_now_naive)
+    finished_at = Column(DateTime, nullable=True)

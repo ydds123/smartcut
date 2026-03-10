@@ -231,3 +231,68 @@ class TestDetectScenesGapMerge:
         )
         assert len(result) == 1
         assert result[0] == (0, 3000)
+
+
+class TestDetectScenesProgressMilestones:
+
+    def _run_detect_scenes_with_progress(
+        self,
+        config: dict,
+        pyscene_scenes: list[tuple[int, int]],
+        *,
+        merge_stage_progresses: list[int] | None = None,
+    ) -> list[int]:
+        vp = _make_processor(config)
+        progress_events: list[int] = []
+
+        def fake_merge_with_transnet(_scenes, progress_callback=None):
+            if progress_callback:
+                for value in merge_stage_progresses or []:
+                    progress_callback(value)
+            return pyscene_scenes, {"fusion_mode": "pyscene+transnet"}
+
+        with patch.object(vp, "_detect_with_pyscene", return_value=pyscene_scenes), \
+             patch.object(vp, "_read_stats_summary", return_value={}), \
+             patch.object(vp, "_get_video_fps", return_value=config.get("_fps", 25.0)), \
+             patch.object(vp, "_get_video_duration_ms", return_value=10000), \
+             patch.object(vp, "_resolve_min_scene_duration_ms", return_value=0), \
+             patch.object(vp, "_merge_short_scenes_by_duration", side_effect=lambda scenes, _: scenes), \
+             patch.object(vp, "_merge_scenes_by_gap", side_effect=lambda scenes, _: scenes), \
+             patch.object(vp, "_merge_with_transnet", side_effect=fake_merge_with_transnet):
+            vp.detect_scenes(progress_callback=progress_events.append)
+
+        return progress_events
+
+    def test_precision_transnet_progress_hits_key_milestones(self):
+        progress_events = self._run_detect_scenes_with_progress(
+            {
+                "detection_mode": "precision",
+                "use_transnet": True,
+                "merge_gap_frames": 0,
+                "min_scene_duration_ms_floor": 0,
+                "min_scene_len_frames": 1,
+            },
+            [(0, 1000), (1000, 2000)],
+            merge_stage_progresses=[20, 52, 76, 100],
+        )
+
+        expected_milestones = [5, 20, 35, 45, 55, 60, 68, 74, 80, 95]
+        for milestone in expected_milestones:
+            assert milestone in progress_events
+        assert progress_events == sorted(progress_events)
+        assert progress_events[-1] == 95
+        assert all(0 <= value <= 99 for value in progress_events)
+
+    def test_fast_detection_progress_stays_simple_and_monotonic(self):
+        progress_events = self._run_detect_scenes_with_progress(
+            {
+                "detection_mode": "fast",
+                "use_transnet": False,
+                "merge_gap_frames": 0,
+                "min_scene_duration_ms_floor": 0,
+                "min_scene_len_frames": 1,
+            },
+            [(0, 1000), (1000, 2000)],
+        )
+
+        assert progress_events == [5, 20, 35, 80, 95]

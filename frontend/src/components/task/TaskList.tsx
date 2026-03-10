@@ -2,17 +2,25 @@ import { useEffect, useState } from 'react'
 import { TaskListItem } from './TaskListItem'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Button } from '@/components/ui/button'
-import { useDeleteTask, useProcessTask, useStartReview } from '@/hooks/useTasks'
+import { useDeleteTask, useStartReview } from '@/hooks/useTasks'
+import {
+  useAnalysisSettings,
+  useOpenAnalysisEnvFile,
+  useTaskAnalysisBatch,
+  useTestAnalysisSettings,
+  useUpdateAnalysisSettings,
+} from '@/hooks/useAnalysis'
 import { useUIStore } from '@/stores/uiStore'
 import { taskService } from '@/services/taskService'
 import {
   DEFAULT_PROCESSING_SETTINGS,
   loadProcessingSettings,
-  toProcessTaskOptions,
   type ProcessingPanelSettings,
 } from './processingConfigSettings'
 import { ProcessingConfigModal } from './ProcessingConfigModal'
+import { AnalysisSettingsModal } from './AnalysisSettingsModal'
 import type { ProcessingConfigMeta, Task } from '@/types/task'
+import type { AnalysisSettingsUpdatePayload } from '@/types/analysis'
 
 interface TaskListProps {
   tasks: Task[]
@@ -33,15 +41,21 @@ export function TaskList({
   onAddSource,
   isBulkDeleting = false,
 }: TaskListProps) {
-  const { openReviewModal } = useUIStore()
+  const { openReviewModal, openStoryIntroModal, addToast } = useUIStore()
   const deleteTask = useDeleteTask()
-  const processTask = useProcessTask()
   const startReview = useStartReview()
+  const updateAnalysisSettings = useUpdateAnalysisSettings()
+  const testAnalysisSettings = useTestAnalysisSettings()
+  const openAnalysisEnvFile = useOpenAnalysisEnvFile()
   const [isConfigOpen, setIsConfigOpen] = useState(false)
+  const [isAnalysisConfigOpen, setIsAnalysisConfigOpen] = useState(false)
+  const [pendingActionTaskId, setPendingActionTaskId] = useState<string | null>(null)
+  const [pendingDeleteTaskId, setPendingDeleteTaskId] = useState<string | null>(null)
   const [processingSettings, setProcessingSettings] = useState<ProcessingPanelSettings>(
     DEFAULT_PROCESSING_SETTINGS
   )
   const [processingConfigMeta, setProcessingConfigMeta] = useState<ProcessingConfigMeta | null>(null)
+  const analysisSettingsQuery = useAnalysisSettings(isAnalysisConfigOpen)
 
   useEffect(() => {
     let disposed = false
@@ -63,6 +77,14 @@ export function TaskList({
     }
   }, [])
 
+  const analysisBatchQuery = useTaskAnalysisBatch(
+    tasks.map((task) => task.id),
+    tasks.length > 0
+  )
+  const analysisByTaskId = new Map(
+    (analysisBatchQuery.data?.items || []).map((item) => [item.taskId, item])
+  )
+
   const selectedVisibleCount = tasks.filter((task) => selectedTaskIds.has(task.id)).length
   const allVisibleSelected = tasks.length > 0 && selectedVisibleCount === tasks.length
   const hasAnySelected = selectedTaskIds.size > 0
@@ -70,26 +92,85 @@ export function TaskList({
   const handleDelete = (taskId: string) => {
     const task = tasks.find((candidate) => candidate.id === taskId)
     if (task && confirm(`确定要删除任务 "${task.displayName}" 吗？`)) {
-      deleteTask.mutate(taskId)
+      setPendingDeleteTaskId(taskId)
+      deleteTask.mutate(taskId, {
+        onSettled: () => {
+          setPendingDeleteTaskId((current) => (current === taskId ? null : current))
+        },
+      })
     }
   }
 
-  const handleProcess = (taskId: string) => {
-    processTask.mutate({
-      id: taskId,
-      options: toProcessTaskOptions(processingSettings),
-    })
-  }
-
   const handleStartReview = (taskId: string) => {
-    startReview.mutate({
-      id: taskId,
-      options: toProcessTaskOptions(processingSettings),
+    setPendingActionTaskId(taskId)
+    startReview.mutate(taskId, {
+      onSettled: () => {
+        setPendingActionTaskId((current) => (current === taskId ? null : current))
+      },
     })
   }
 
   const handleOpenReview = (taskId: string) => {
     openReviewModal(taskId)
+  }
+
+  const handleOpenStoryIntro = (taskId: string) => {
+    openStoryIntroModal(taskId)
+  }
+
+  const handleSaveAnalysisSettings = async (payload: AnalysisSettingsUpdatePayload) => {
+    try {
+      await updateAnalysisSettings.mutateAsync(payload)
+      addToast({
+        type: 'success',
+        message: '分析设置已保存',
+      })
+      setIsAnalysisConfigOpen(false)
+    } catch {
+      addToast({
+        type: 'error',
+        message: '保存分析设置失败，请稍后重试',
+      })
+    }
+  }
+
+  const handleTestAnalysisSettings = async (payload: AnalysisSettingsUpdatePayload): Promise<string> => {
+    try {
+      const result = await testAnalysisSettings.mutateAsync(payload)
+      const suffix = result.latencyMs ? `（${result.latencyMs}ms）` : ''
+      const message = result.message || '连接测试通过'
+      addToast({
+        type: 'success',
+        message: `连接测试通过${suffix}`,
+      })
+      return `${message}${suffix}`
+    } catch (error: any) {
+      const detail = error?.response?.data?.detail || '连接测试失败'
+      addToast({
+        type: 'error',
+        message: typeof detail === 'string' ? detail : '连接测试失败',
+      })
+      return typeof detail === 'string' ? detail : '连接测试失败'
+    }
+  }
+
+  const handleOpenAnalysisEnvFile = async (): Promise<string> => {
+    try {
+      const result = await openAnalysisEnvFile.mutateAsync()
+      const message = result.message || '已打开配置文件'
+      addToast({
+        type: 'success',
+        message,
+      })
+      return message
+    } catch (error: any) {
+      const detail = error?.response?.data?.detail || '打开配置文件失败'
+      addToast({
+        type: 'error',
+        message: typeof detail === 'string' ? detail : '打开配置文件失败',
+      })
+      return typeof detail === 'string' ? detail : '打开配置文件失败'
+    }
   }
 
   return (
@@ -125,6 +206,15 @@ export function TaskList({
             参数配置
           </Button>
           <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            onClick={() => setIsAnalysisConfigOpen(true)}
+            className="h-8 px-4"
+          >
+            分析设置
+          </Button>
+          <Button
             size="sm"
             variant="danger"
             onClick={onBulkDelete}
@@ -143,10 +233,11 @@ export function TaskList({
         </div>
       ) : (
         <div className="sc-table-shell flex flex-1 min-h-0 flex-col overflow-hidden rounded-lg">
-          <div className="sc-table-header grid grid-cols-[32px_2.5fr_1.2fr_80px_64px_0.9fr_1.8fr] items-center gap-x-2.5 px-3 py-2 text-sm font-semibold">
+          <div className="sc-table-header grid grid-cols-[32px_minmax(0,2.4fr)_minmax(0,1.25fr)_minmax(0,0.95fr)_80px_64px_minmax(0,0.95fr)_minmax(0,1.8fr)] items-center gap-x-2.5 px-3 py-2 text-sm font-semibold">
             <div />
             <div className="px-1.5">任务名称</div>
             <div className="px-1.5">状态 / 进度</div>
+            <div className="px-1.5">故事介绍</div>
             <div className="px-1.5">视频时长</div>
             <div className="px-1.5">镜头数</div>
             <div className="px-1.5">上传时间</div>
@@ -158,14 +249,16 @@ export function TaskList({
               <TaskListItem
                 key={task.id}
                 task={task}
+                analysisStatus={analysisByTaskId.get(task.id)}
+                analysisStatusReady={analysisBatchQuery.isSuccess}
                 selected={selectedTaskIds.has(task.id)}
                 onSelectChange={(checked) => onToggleTask(task.id, checked)}
                 onDelete={handleDelete}
-                onProcess={handleProcess}
                 onStartReview={handleStartReview}
                 onOpenReview={handleOpenReview}
-                isProcessing={processTask.isPending || startReview.isPending}
-                isDeleting={deleteTask.isPending}
+                onOpenStoryIntro={handleOpenStoryIntro}
+                isProcessing={pendingActionTaskId === task.id}
+                isDeleting={pendingDeleteTaskId === task.id}
               />
             ))}
           </div>
@@ -178,6 +271,19 @@ export function TaskList({
         configMeta={processingConfigMeta}
         onClose={() => setIsConfigOpen(false)}
         onSave={(nextSettings) => setProcessingSettings(nextSettings)}
+      />
+
+      <AnalysisSettingsModal
+        isOpen={isAnalysisConfigOpen}
+        isLoading={analysisSettingsQuery.isLoading}
+        isSaving={updateAnalysisSettings.isPending}
+        isTesting={testAnalysisSettings.isPending}
+        isOpeningEnvFile={openAnalysisEnvFile.isPending}
+        settings={analysisSettingsQuery.data}
+        onClose={() => setIsAnalysisConfigOpen(false)}
+        onSave={handleSaveAnalysisSettings}
+        onTest={handleTestAnalysisSettings}
+        onOpenEnvFile={handleOpenAnalysisEnvFile}
       />
     </div>
   )

@@ -4,6 +4,7 @@ import { useTasks } from './hooks/useTasks'
 import { UploadModal } from './components/upload/UploadModal'
 import { TaskList } from './components/task/TaskList'
 import { ReviewModal } from './components/review/ReviewModal'
+import { StoryIntroModalHost } from './components/review/StoryIntroModalHost'
 import { ToastContainer } from './components/ui/toast'
 import { taskService } from './services/taskService'
 import { useUIStore } from './stores/uiStore'
@@ -157,6 +158,7 @@ function App() {
       <UploadModal />
       {/* TimelineModal 已按需求暂时停用（时间轴工作台功能下线） */}
       <ReviewModal />
+      <StoryIntroModalHost />
       <ToastContainer />
     </div>
   )

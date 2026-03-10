@@ -1,14 +1,19 @@
+import { useEffect, useState } from 'react'
+
 import { Checkbox } from '@/components/ui/checkbox'
 import { StatusLabel } from './StatusLabel'
 import { useTaskProgress } from '@/hooks/useTaskProgress'
 import {
   DELETABLE_TASK_STATUSES,
-  PREVIEWABLE_TASK_STATUSES,
   PROGRESS_VISIBLE_TASK_STATUSES,
   type Task,
 } from '@/types/task'
+import type { TaskAnalysisBatchItem } from '@/types/analysis'
 import { parseBackendDate } from '@/utils/dateTime'
 import { resolveAssetUrl } from '@/utils/assetUrl'
+import { canOpenTaskPreview, canRetryTaskPreview } from './taskPreviewState'
+import { getTaskAnalysisPresentation } from './taskAnalysisPresentation'
+import { getTaskThumbnailPresentation } from './taskThumbnailPresentation'
 
 function formatFileSize(bytes: number): string {
   if (bytes <= 0) {
@@ -51,30 +56,58 @@ function formatDuration(durationMs?: number | null): string {
   return `${mm}:${ss}`
 }
 
+function TaskThumbnailPlaceholder() {
+  return (
+    <div
+      className="flex h-full w-full items-center justify-center text-[var(--sc-text-muted)]"
+      aria-hidden="true"
+    >
+      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor">
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth="2"
+          d="M4 7h16M4 12h16M4 17h16"
+        />
+      </svg>
+    </div>
+  )
+}
+
 export interface TaskListItemProps {
   task: Task
+  analysisStatus?: TaskAnalysisBatchItem
+  analysisStatusReady?: boolean
   selected: boolean
   onSelectChange: (checked: boolean) => void
   onDelete: (taskId: string) => void
-  onProcess: (taskId: string) => void
   onStartReview?: (taskId: string) => void
   onOpenReview?: (taskId: string) => void
+  onOpenStoryIntro?: (taskId: string) => void
   isProcessing?: boolean
   isDeleting?: boolean
 }
 
 export function TaskListItem({
   task,
+  analysisStatus,
+  analysisStatusReady = true,
   selected,
   onSelectChange,
   onDelete,
-  onProcess,
   onStartReview,
   onOpenReview,
+  onOpenStoryIntro,
   isProcessing = false,
   isDeleting = false,
 }: TaskListItemProps) {
-  const { progress, status, totalScenes } = useTaskProgress(task.id, task.status, task.progress)
+  const {
+    progress,
+    status,
+    totalScenes,
+    stageMessage,
+    isLongRunningStage,
+  } = useTaskProgress(task.id, task.status, task.progress, task.resolvedConfig)
 
   const liveStatus = status || task.status
   const displayProgress = Math.max(0, Math.min(100, progress ?? task.progress ?? 0))
@@ -82,15 +115,27 @@ export function TaskListItem({
   const showProgress = PROGRESS_VISIBLE_TASK_STATUSES.includes(liveStatus)
 
   const previewUrl = resolveAssetUrl(task.previewThumbnailPath ?? null)
+  const [thumbnailLoadFailed, setThumbnailLoadFailed] = useState(false)
   const isBusy = isProcessing || isDeleting
   const actionBtnClass = 'sc-btn sc-btn-secondary h-7 px-3 text-sm'
   const dangerBtnClass = 'sc-btn sc-btn-danger h-7 px-3 text-sm'
-  const canPreviewScenes = PREVIEWABLE_TASK_STATUSES.includes(liveStatus)
+  const canPreviewScenes = canOpenTaskPreview(task, liveStatus)
+  const canRetryPreview = canRetryTaskPreview(task, liveStatus)
   const canDelete = DELETABLE_TASK_STATUSES.includes(liveStatus)
+  const analysisPresentation = getTaskAnalysisPresentation(
+    analysisStatus?.status,
+    analysisStatusReady
+  )
+  const canOpenStoryIntro = analysisPresentation.canOpen && Boolean(onOpenStoryIntro)
+  const thumbnailPresentation = getTaskThumbnailPresentation(previewUrl, thumbnailLoadFailed)
+
+  useEffect(() => {
+    setThumbnailLoadFailed(false)
+  }, [task.id, previewUrl])
 
   return (
     <div
-      className={`sc-row grid grid-cols-[32px_2.5fr_1.2fr_80px_64px_0.9fr_1.8fr] items-center gap-x-2.5 px-3 py-2.5 ${
+      className={`sc-row grid grid-cols-[32px_minmax(0,2.4fr)_minmax(0,1.25fr)_minmax(0,0.95fr)_80px_64px_minmax(0,0.95fr)_minmax(0,1.8fr)] items-center gap-x-2.5 px-3 py-2.5 ${
         selected ? 'sc-row-selected' : ''
       }`}
     >
@@ -105,24 +150,17 @@ export function TaskListItem({
       <div className="min-w-0 px-1.5">
         <div className="flex min-w-0 items-center gap-3">
           <div className="h-[45px] w-20 flex-shrink-0 overflow-hidden rounded-md border border-[var(--sc-border-subtle)] bg-[var(--sc-bg-surface)]">
-            {previewUrl ? (
+            {thumbnailPresentation.shouldRenderImage && previewUrl ? (
               <img
                 src={previewUrl}
-                alt={task.displayName}
+                alt={thumbnailPresentation.alt}
+                aria-hidden="true"
                 className="h-full w-full object-cover"
                 loading="lazy"
+                onError={() => setThumbnailLoadFailed(true)}
               />
             ) : (
-              <div className="flex h-full w-full items-center justify-center text-[var(--sc-text-muted)]">
-                <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth="2"
-                    d="M4 7h16M4 12h16M4 17h16"
-                  />
-                </svg>
-              </div>
+              <TaskThumbnailPlaceholder />
             )}
           </div>
 
@@ -139,11 +177,22 @@ export function TaskListItem({
 
       <div className="min-w-0 px-1.5 text-sm">
         <StatusLabel status={liveStatus} className="text-sm" />
+        {stageMessage && (
+          <div className="mt-1 text-xs leading-5 text-[var(--sc-text-secondary)]">
+            {stageMessage}
+          </div>
+        )}
         {showProgress && (
-          <div className="mt-1 flex items-center gap-2">
-            <div className="h-1.5 max-w-[140px] flex-1 overflow-hidden rounded-full bg-[var(--sc-bg-contrast)]">
+          <div className="mt-1.5 flex items-center gap-2">
+            <div
+              className={`sc-progress-track h-1.5 max-w-[140px] flex-1 overflow-hidden rounded-full bg-[var(--sc-bg-contrast)] ${
+                isLongRunningStage ? 'sc-progress-track-active' : ''
+              }`}
+            >
               <div
-                className="h-full rounded-full bg-[var(--sc-accent)] transition-all duration-300"
+                className={`sc-progress-fill h-full rounded-full bg-[var(--sc-accent)] transition-all duration-300 ${
+                  isLongRunningStage ? 'sc-progress-fill-active' : ''
+                }`}
                 style={{ width: `${displayProgress}%` }}
               />
             </div>
@@ -151,6 +200,49 @@ export function TaskListItem({
               {displayProgress.toFixed(0)}%
             </span>
           </div>
+        )}
+        {isLongRunningStage && (
+          <div className="mt-1 text-xs leading-5 text-[var(--sc-status-info-text)]">
+            任务仍在正常进行
+          </div>
+        )}
+      </div>
+
+      <div className="min-w-0 px-1.5 text-sm" onClick={(event) => event.stopPropagation()}>
+        {canOpenStoryIntro ? (
+          <button
+            type="button"
+            onClick={() => onOpenStoryIntro?.(task.id)}
+            disabled={isBusy}
+            aria-label={`打开任务 ${task.displayName} 的故事介绍`}
+            className="inline-flex max-w-full items-center gap-1.5 rounded px-2 py-0.5 text-small transition-opacity hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--sc-focus-ring)] disabled:cursor-not-allowed disabled:opacity-60"
+            style={{
+              color: analysisPresentation.textColor,
+              backgroundColor: analysisPresentation.bgColor,
+            }}
+          >
+            <span
+              className="h-1.5 w-1.5 flex-shrink-0 rounded-full"
+              style={{ backgroundColor: analysisPresentation.borderColor }}
+              aria-hidden="true"
+            />
+            <span className="truncate">{analysisPresentation.label}</span>
+          </button>
+        ) : (
+          <span
+            className="inline-flex max-w-full items-center gap-1.5 rounded px-2 py-0.5 text-small"
+            style={{
+              color: analysisPresentation.textColor,
+              backgroundColor: analysisPresentation.bgColor,
+            }}
+          >
+            <span
+              className="h-1.5 w-1.5 flex-shrink-0 rounded-full"
+              style={{ backgroundColor: analysisPresentation.borderColor }}
+              aria-hidden="true"
+            />
+            <span className="truncate">{analysisPresentation.label}</span>
+          </span>
         )}
       </div>
 
@@ -179,25 +271,15 @@ export function TaskListItem({
             </button>
           )}
 
-          {liveStatus === 'PENDING' && (
-            <>
-              <button
-                type="button"
-                onClick={() => onProcess(task.id)}
-                disabled={isBusy}
-                className={actionBtnClass}
-              >
-                直接处理
-              </button>
-              <button
-                type="button"
-                onClick={() => onStartReview?.(task.id)}
-                disabled={isBusy}
-                className={actionBtnClass}
-              >
-                检测并审核
-              </button>
-            </>
+          {canRetryPreview && (
+            <button
+              type="button"
+              onClick={() => onStartReview?.(task.id)}
+              disabled={isBusy}
+              className={actionBtnClass}
+            >
+              重试预览
+            </button>
           )}
 
           {canDelete && (

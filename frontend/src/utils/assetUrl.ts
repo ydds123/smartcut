@@ -26,7 +26,10 @@ function splitQuery(pathValue: string): { path: string; query: string } {
   const withoutHash = hashIndex >= 0 ? pathValue.slice(0, hashIndex) : pathValue
   const hash = hashIndex >= 0 ? pathValue.slice(hashIndex) : ''
 
-  const queryIndex = withoutHash.indexOf('?')
+  // Backend only appends query params for protected direct asset access.
+  // Filenames themselves may legitimately contain "?", so treat those as path chars.
+  const tokenQueryIndex = withoutHash.lastIndexOf('?api_token=')
+  const queryIndex = tokenQueryIndex >= 0 ? tokenQueryIndex : -1
   if (queryIndex < 0) {
     return { path: withoutHash, query: hash }
   }

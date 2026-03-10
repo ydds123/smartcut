@@ -265,6 +265,7 @@ class VideoProcessor:
         # Stage 1: PySceneDetect 获取候选场景
         pyscene_scenes = self._detect_with_pyscene()
         pyscene_boundaries = self._scenes_to_cut_frames(pyscene_scenes)
+        emit_detection_progress(20)
 
         # 读取 stats 帧级分数摘要（用于检测置信度报告）
         detector_type = self.processing_config.get("detector", "content")
@@ -296,15 +297,15 @@ class VideoProcessor:
 
         # Stage 2: TransNetV2 验证（仅 precision 模式且启用时）
         if detection_mode == "precision" and use_transnet:
+            emit_detection_progress(45)
             emit_detection_progress(55)
             final_scenes, merge_report = self._merge_with_transnet(
                 pyscene_scenes,
                 progress_callback=lambda stage_progress: emit_detection_progress(
-                    55 + int(max(0, min(100, stage_progress)) * 0.25)
+                    self._map_precision_merge_progress(stage_progress)
                 ),
             )
             report.update(merge_report)
-            emit_detection_progress(80)
         else:
             final_scenes = pyscene_scenes
             logger.info(f"Task {self.task_id}: 使用快速模式（{detection_mode}），TransNetV2 已跳过")
@@ -337,6 +338,37 @@ class VideoProcessor:
         self.last_detection_report = report
         emit_detection_progress(95)
         return final_scenes
+
+    @staticmethod
+    def _map_precision_merge_progress(stage_progress: int) -> int:
+        """
+        将 TransNet 融合阶段内部进度映射到 DETECTING 的 55-80 区段。
+        关键锚点：
+        - 20 -> 60: 进入边界识别执行
+        - 52 -> 68: 边界识别完成
+        - 76 -> 74: 候选评分与融合规则完成
+        - 100 -> 80: 融合阶段完成
+        """
+        clamped = max(0, min(100, int(stage_progress)))
+        keyframes = (
+            (0, 55),
+            (20, 60),
+            (52, 68),
+            (76, 74),
+            (100, 80),
+        )
+
+        for index in range(1, len(keyframes)):
+            start_stage, start_value = keyframes[index - 1]
+            end_stage, end_value = keyframes[index]
+            if clamped <= end_stage:
+                span = end_stage - start_stage
+                if span <= 0:
+                    return end_value
+                ratio = (clamped - start_stage) / span
+                return int(round(start_value + (end_value - start_value) * ratio))
+
+        return keyframes[-1][1]
 
     def _detect_with_pyscene(self) -> List[Tuple[int, int]]:
         """
@@ -646,7 +678,6 @@ class VideoProcessor:
             "added_boundary_count": 0,
             "transnet_elapsed_sec": 0.0,
         }
-        emit_merge_progress(2)
 
         detector = self._get_transnet_detector()
         if detector is None:
@@ -668,7 +699,6 @@ class VideoProcessor:
             return pyscene_scenes, report
 
         try:
-            emit_merge_progress(10)
             fps = self._get_video_fps()
             if fps <= 0:
                 fallback_reason = "invalid_fps"
@@ -690,7 +720,7 @@ class VideoProcessor:
                 return pyscene_scenes, report
 
             candidate_frames = self._scenes_to_cut_frames(pyscene_scenes, fps=fps)
-            emit_merge_progress(18)
+            emit_merge_progress(20)
             transnet_start = time.perf_counter()
             transnet_boundaries = detector.detect_boundaries(self.video_path)
             report["transnet_elapsed_sec"] = round(time.perf_counter() - transnet_start, 3)
@@ -725,7 +755,7 @@ class VideoProcessor:
             candidate_scores = detector.score_candidates(self.video_path, candidate_frames)
             report["soft_candidate_multiplier"] = round(soft_candidate_multiplier, 2)
             report["soft_candidate_threshold"] = soft_candidate_threshold
-            emit_merge_progress(78)
+            emit_merge_progress(76)
 
             retained_frames: list[int] = []
             boundary_scores: dict[int, float] = {}

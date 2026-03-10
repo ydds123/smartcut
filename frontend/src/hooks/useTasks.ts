@@ -1,6 +1,12 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { taskService } from '@/services/taskService'
-import { ACTIVE_TASK_STATUSES, type ProcessTaskOptions, type ReviewScene, type Task } from '@/types/task'
+import {
+  ACTIVE_TASK_STATUSES,
+  type LocalPrecisionPreviewRequest,
+  type ProcessTaskOptions,
+  type ReviewScene,
+  type Task,
+} from '@/types/task'
 
 const ACTIVE_TASK_STATUS_SET = new Set(ACTIVE_TASK_STATUSES)
 
@@ -111,7 +117,7 @@ export function useTaskResult(id: string) {
 }
 
 /**
- * 开始检测并审核 Hook
+ * 开始分镜预览检测 Hook
  */
 export function useStartReview() {
   const queryClient = useQueryClient()
@@ -150,6 +156,16 @@ export function useSaveReviewData() {
     onSuccess: (_data, { id }) => {
       queryClient.invalidateQueries({ queryKey: ['tasks', id, 'review-data'] })
     },
+  })
+}
+
+/**
+ * 局部高精度预览 Hook
+ */
+export function useLocalPrecisionPreview() {
+  return useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: LocalPrecisionPreviewRequest }) =>
+      taskService.localPrecisionPreview(id, payload),
   })
 }
 

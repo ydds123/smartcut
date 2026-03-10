@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.api import progress, tasks, upload
+from app.api import analysis, progress, tasks, upload
 from app.core.config import settings
 from app.core.database import init_db
 from app.core.security import require_api_token
@@ -34,6 +34,7 @@ api_dependencies = [Depends(require_api_token)]
 app.include_router(upload.router, prefix="/api", tags=["upload"], dependencies=api_dependencies)
 app.include_router(tasks.router, prefix="/api", tags=["tasks"], dependencies=api_dependencies)
 app.include_router(progress.router, prefix="/api", tags=["progress"], dependencies=api_dependencies)
+app.include_router(analysis.router, prefix="/api", tags=["analysis"], dependencies=api_dependencies)
 
 # 静态文件服务（用于访问缩略图和视频片段）
 data_dir = (Path(__file__).resolve().parents[1] / "data").resolve()
