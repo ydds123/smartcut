@@ -26,6 +26,19 @@ function splitQuery(pathValue: string): { path: string; query: string } {
   const withoutHash = hashIndex >= 0 ? pathValue.slice(0, hashIndex) : pathValue
   const hash = hashIndex >= 0 ? pathValue.slice(hashIndex) : ''
 
+  // API endpoints use standard query strings, e.g. /api/tasks/:id/frame?t=1234.
+  // These should not be treated as literal filename characters.
+  if (withoutHash.startsWith('/api/')) {
+    const queryIndex = withoutHash.indexOf('?')
+    if (queryIndex >= 0) {
+      return {
+        path: withoutHash.slice(0, queryIndex),
+        query: `${withoutHash.slice(queryIndex)}${hash}`,
+      }
+    }
+    return { path: withoutHash, query: hash }
+  }
+
   // Backend only appends query params for protected direct asset access.
   // Filenames themselves may legitimately contain "?", so treat those as path chars.
   const tokenQueryIndex = withoutHash.lastIndexOf('?api_token=')

@@ -266,11 +266,15 @@ def _resolve_preview_ms_from_scene(start_ms: int | None, end_ms: int | None) -> 
         end = max(start, int(end_ms))
     except Exception:
         return None
-    return max(start, (start + end) // 2)
+    scene_duration_ms = end - start
+    if scene_duration_ms <= 0:
+        return None
+
+    return start + (scene_duration_ms // 2)
 
 
-def _resolve_preview_time_ms(task: Task, db: Session) -> int:
-    """与审核页右侧镜头列表一致：优先取第一镜头中点帧，否则回退到 0.5 秒。"""
+def _resolve_preview_time_ms(task: Task, db: Session) -> int | None:
+    """与审核页右侧镜头列表一致：优先取第一镜头中点帧。"""
     # 1) 已切片场景：取 sequence_index=0 的中点帧
     first_scene = (
         db.query(Scene.start_ms, Scene.end_ms)
@@ -295,14 +299,29 @@ def _resolve_preview_time_ms(task: Task, db: Session) -> int:
             if from_review is not None:
                 return from_review
 
-    # 3) 回退：0.5秒（若视频更短则取末尾）
-    fallback = 500
-    if task.duration_ms and task.duration_ms > 0:
-        return min(fallback, max(0, int(task.duration_ms) - 1))
-    return fallback
+    return None
 
 
 def _resolve_task_preview(task: Task, db: Session) -> str | None:
+    preview_ms = _resolve_preview_time_ms(task, db)
+    if preview_ms is not None:
+        try:
+            _resolve_task_video_path(task)
+        except HTTPException as exc:
+            if exc.status_code != 404:
+                raise
+        else:
+            return f"/api/tasks/{task.id}/frame?t={preview_ms}"
+
+    first_scene_thumbnail = (
+        db.query(Scene.thumbnail_path)
+        .filter(Scene.task_id == task.id, Scene.thumbnail_path.isnot(None))
+        .order_by(Scene.sequence_index.asc())
+        .first()
+    )
+    if first_scene_thumbnail and first_scene_thumbnail[0]:
+        return FileService.to_public_data_path(first_scene_thumbnail[0])
+
     upload_preview_path = FileService.build_upload_preview_path(task.id)
     if upload_preview_path.exists() and upload_preview_path.stat().st_size > 0:
         return FileService.to_public_data_path(str(upload_preview_path))
@@ -314,8 +333,9 @@ def _resolve_task_preview(task: Task, db: Session) -> str | None:
             return None
         raise
 
-    preview_ms = _resolve_preview_time_ms(task, db)
-    return f"/api/tasks/{task.id}/frame?t={preview_ms}"
+    fallback = 500
+    fallback_preview_ms = min(fallback, max(0, int(task.duration_ms or 0) - 1)) if task.duration_ms else fallback
+    return f"/api/tasks/{task.id}/frame?t={fallback_preview_ms}"
 
 
 def _to_json(value: Any) -> str:

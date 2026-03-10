@@ -5,6 +5,7 @@
 import subprocess
 import os
 import csv
+import sys
 from pathlib import Path
 from typing import Any, List, Tuple, Optional, Callable, Dict
 import logging
@@ -390,7 +391,8 @@ class VideoProcessor:
 
         stats_file = self.task_dir / "scenes.stats.csv"
         use_stats_file = frame_skip <= 0
-        cmd = ["scenedetect", "-i", self.video_path]
+        scenedetect_cmd = [sys.executable, "-m", "scenedetect"]
+        cmd = [*scenedetect_cmd, "-i", self.video_path]
         if use_stats_file:
             cmd.extend(["--stats", str(stats_file)])
             if stats_file.exists():
@@ -482,7 +484,7 @@ class VideoProcessor:
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as e:
             logger.warning(f"Task {self.task_id}: 场景检测失败，回退默认配置 - {_safe_stderr(e)}")
             fallback_cmd = [
-                "scenedetect",
+                *scenedetect_cmd,
                 "-i",
                 self.video_path,
                 "detect-content",

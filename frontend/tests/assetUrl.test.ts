@@ -18,4 +18,12 @@ describe('assetUrl', () => {
       'http://127.0.0.1:8000/data/uploads/demo.mp4?api_token=demo_token'
     )
   })
+
+  test('preserves generic query params for api endpoints', () => {
+    expect(
+      resolveAssetUrl('/api/tasks/demo-task/frame?t=5666')
+    ).toBe(
+      'http://127.0.0.1:8000/api/tasks/demo-task/frame?t=5666'
+    )
+  })
 })

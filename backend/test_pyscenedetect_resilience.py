@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import subprocess
+import sys
 from pathlib import Path
 from unittest.mock import patch
 
@@ -33,14 +34,17 @@ def test_detect_with_pyscene_degrades_to_single_scene_when_all_commands_fail(tmp
 
     assert scenes == [(0, 4321)]
     assert len(attempted_commands) == 2
-    assert attempted_commands[1][0:4] == ["scenedetect", "-i", processor.video_path, "--stats"]
+    assert attempted_commands[0][0:4] == [sys.executable, "-m", "scenedetect", "-i"]
+    assert attempted_commands[1][0:3] == [sys.executable, "-m", "scenedetect"]
+    assert attempted_commands[1].count("--stats") == 1
+    assert processor.video_path in attempted_commands[1]
 
 
 def test_detect_with_pyscene_falls_back_to_default_content_detector(tmp_path, monkeypatch):
     processor = _make_processor(tmp_path, monkeypatch)
 
     fallback_cmd: list[str] = []
-    result = subprocess.CompletedProcess(args=["scenedetect"], returncode=0, stdout="", stderr="")
+    result = subprocess.CompletedProcess(args=[sys.executable, "-m", "scenedetect"], returncode=0, stdout="", stderr="")
     calls = {"count": 0}
 
     def _primary_then_fallback(cmd, **kwargs):
@@ -58,6 +62,7 @@ def test_detect_with_pyscene_falls_back_to_default_content_detector(tmp_path, mo
 
     assert scenes == [(0, 1000), (1000, 2000)]
     assert calls["count"] == 2
+    assert fallback_cmd[0:3] == [sys.executable, "-m", "scenedetect"]
     assert "detect-content" in fallback_cmd
     assert "list-scenes" in fallback_cmd
 

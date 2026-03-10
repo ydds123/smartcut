@@ -8,8 +8,8 @@ from fastapi import HTTPException
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from app.api.tasks import _resolve_task_preview, get_frame
-from app.models.models import Base, Task
+from app.api.tasks import _resolve_preview_ms_from_scene, _resolve_task_preview, get_frame
+from app.models.models import Base, Scene, Task
 from app.services.file_service import FileService
 
 
@@ -41,6 +41,40 @@ class TestTaskPreviewThumbnail(unittest.TestCase):
         self.db.refresh(task)
         return task
 
+    def _create_scene(self, task_id: str, *, thumbnail_path: str | None, start_ms: int = 0, end_ms: int = 1000) -> Scene:
+        scene = Scene(
+            id=f"{task_id}_scene_0",
+            task_id=task_id,
+            sequence_index=0,
+            start_ms=start_ms,
+            end_ms=end_ms,
+            file_path=None,
+            thumbnail_path=thumbnail_path,
+        )
+        self.db.add(scene)
+        self.db.commit()
+        self.db.refresh(scene)
+        return scene
+
+    def test_resolve_preview_ms_from_scene_matches_scene_thumbnail_timing_rule(self):
+        self.assertEqual(_resolve_preview_ms_from_scene(0, 1000), 500)
+        self.assertEqual(_resolve_preview_ms_from_scene(1000, 1800), 1400)
+        self.assertEqual(_resolve_preview_ms_from_scene(0, 220), 110)
+
+    def test_resolve_task_preview_prefers_review_frame_when_scene_data_exists(self):
+        task = self._create_task(
+            "task-preview-review-frame",
+            file_path=str(Path(self.tempdir.name) / "video.mp4"),
+        )
+        scene_thumb_path = Path(self.tempdir.name) / "scene_000_thumb.jpg"
+        Path(task.file_path).write_bytes(b"video-bytes")
+        scene_thumb_path.write_bytes(b"jpeg-bytes")
+        self._create_scene(task.id, thumbnail_path=str(scene_thumb_path), start_ms=0, end_ms=1000)
+
+        preview_url = _resolve_task_preview(task, self.db)
+
+        self.assertEqual(preview_url, f"/api/tasks/{task.id}/frame?t=500")
+
     def test_resolve_task_preview_returns_none_when_video_file_is_missing(self):
         task = self._create_task(
             "task-preview-missing",
@@ -61,6 +95,19 @@ class TestTaskPreviewThumbnail(unittest.TestCase):
             preview_url = _resolve_task_preview(task, self.db)
 
         self.assertEqual(preview_url, FileService.to_public_data_path(str(preview_path)))
+
+    def test_resolve_task_preview_falls_back_to_scene_thumbnail_when_video_missing(self):
+        task = self._create_task(
+            "task-preview-scene-thumb-fallback",
+            file_path=str(Path(self.tempdir.name) / "missing.mp4"),
+        )
+        scene_thumb_path = Path(self.tempdir.name) / "scene_001_thumb.jpg"
+        scene_thumb_path.write_bytes(b"jpeg-bytes")
+        self._create_scene(task.id, thumbnail_path=str(scene_thumb_path), start_ms=0, end_ms=1000)
+
+        preview_url = _resolve_task_preview(task, self.db)
+
+        self.assertEqual(preview_url, FileService.to_public_data_path(str(scene_thumb_path)))
 
     def test_get_frame_returns_404_when_video_file_is_missing(self):
         task = self._create_task(
