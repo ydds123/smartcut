@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, model_validator
 
 
 class TaskCreate(BaseModel):
@@ -14,6 +14,7 @@ class ProcessConfigOverride(BaseModel):
     use_transnet: Optional[bool] = None
     scene_threshold: Optional[float] = None
     min_scene_len_frames: Optional[int] = None
+    min_scene_duration_ms_floor: Optional[int] = None
     downscale: Optional[int] = None
     frame_skip: Optional[int] = None
     adaptive_threshold: Optional[float] = None
@@ -25,11 +26,17 @@ class ProcessConfigOverride(BaseModel):
     weight_lum: Optional[float] = None
     weight_edges: Optional[float] = None
     transnet_threshold: Optional[float] = None
+    transnet_soft_candidate_multiplier: Optional[float] = None
     transnet_tolerance_frames: Optional[int] = None
     transnet_window_size: Optional[int] = None
-    transnet_timeout_sec: Optional[int] = None
     transnet_additional_boundary_threshold: Optional[float] = None
     transnet_only_min_gap_frames: Optional[int] = None
+    use_threshold_detector: Optional[bool] = None
+    threshold_detector_threshold: Optional[float] = None
+    threshold_detector_fade_bias: Optional[float] = None
+    merge_gap_frames: Optional[int] = None
+    split_copy_mode: Optional[bool] = None
+    scenedetect_timeout_sec: Optional[int] = None
 
 
 class ProcessTaskRequest(BaseModel):
@@ -38,13 +45,62 @@ class ProcessTaskRequest(BaseModel):
     override_config: Optional[ProcessConfigOverride] = None
 
 
+class ReviewScenePayload(BaseModel):
+    start_ms: int = Field(ge=0)
+    end_ms: int = Field(gt=0)
+
+    @model_validator(mode="after")
+    def validate_range(self):
+        if self.end_ms <= self.start_ms:
+            raise ValueError("end_ms must be greater than start_ms")
+        return self
+
+
+class SaveReviewDataRequest(BaseModel):
+    scenes: list[ReviewScenePayload]
+
+
+class LocalPrecisionPreviewRequest(BaseModel):
+    anchor_scene_index: int = Field(ge=0)
+    radius: int = Field(default=2, ge=0, le=10)
+
+
+class LocalPrecisionTargetRange(BaseModel):
+    start_ms: int = Field(ge=0)
+    end_ms: int = Field(gt=0)
+    start_index: int = Field(ge=0)
+    end_index: int = Field(ge=0)
+
+    @model_validator(mode="after")
+    def validate_range(self):
+        if self.end_ms <= self.start_ms:
+            raise ValueError("end_ms must be greater than start_ms")
+        if self.end_index < self.start_index:
+            raise ValueError("end_index must be greater than or equal to start_index")
+        return self
+
+
+class LocalPrecisionProposal(BaseModel):
+    target_range: LocalPrecisionTargetRange
+    original_scenes: list[ReviewScenePayload]
+    proposed_scenes: list[ReviewScenePayload]
+    report: dict[str, Any]
+
+
+class LocalPrecisionPreviewResponse(LocalPrecisionProposal):
+    pass
+
+
 class TaskResponse(BaseModel):
     id: str
     display_name: str
     file_path: str
     file_size: int
+    duration_ms: Optional[int] = None
     status: str
     progress: int
+    active_operation: Optional[str] = None
+    active_job_id: Optional[str] = None
     total_scenes: Optional[int]
     shots_count: Optional[int] = None
     preview_thumbnail_path: Optional[str] = None
@@ -56,6 +112,7 @@ class TaskResponse(BaseModel):
     suspect_segments: Optional[list[dict[str, Any]]] = None
     tuning_history: Optional[list[dict[str, Any]]] = None
     review_notes: Optional[str] = None
+    latest_split_stats: Optional[dict[str, Any]] = None
     detection_result: Optional[dict[str, Any]] = None
     user_edited_scenes: Optional[list[dict[str, Any]]] = None
     reviewed_at: Optional[datetime] = None
@@ -83,4 +140,6 @@ class SceneResponse(BaseModel):
 class ProcessTaskResponse(BaseModel):
     status: str
     job_id: Optional[str] = None
+    deduplicated: bool = False
     resolved_config: Optional[dict[str, Any]] = None
+    config_meta: Optional[dict[str, Any]] = None

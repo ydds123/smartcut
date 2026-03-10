@@ -1,14 +1,23 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import type { TaskStatus } from '@/types/task'
+import { ACTIVE_TASK_STATUSES, TERMINAL_TASK_STATUSES, type ProcessingConfig, type TaskStatus } from '@/types/task'
 import { taskService } from '@/services/taskService'
 import { playSound } from '@/utils/soundPlayer'
+import { buildProgressPresentation } from './progressPresentation'
 
 /**
  * SSE 进度 Hook（带平滑进度更新）
  *
  * 使用 Server-Sent Events 实时接收任务处理进度
  */
-export function useTaskProgress(taskId: string, taskStatus?: string) {
+const ACTIVE_PROGRESS_STATUSES = new Set<TaskStatus>(ACTIVE_TASK_STATUSES)
+const TERMINAL_PROGRESS_STATUSES = new Set<TaskStatus>(TERMINAL_TASK_STATUSES)
+
+export function useTaskProgress(
+  taskId: string,
+  taskStatus?: string,
+  taskProgress?: number,
+  resolvedConfig?: Partial<ProcessingConfig> | null
+) {
   const [progress, setProgress] = useState(0)
   const [status, setStatus] = useState<TaskStatus>(
     (taskStatus as TaskStatus) || 'PENDING'
@@ -16,6 +25,8 @@ export function useTaskProgress(taskId: string, taskStatus?: string) {
   const [totalScenes, setTotalScenes] = useState<number | null>(null)
   const [isConnected, setIsConnected] = useState(false)
   const [error, setError] = useState<Error | null>(null)
+  const [lastProgressAt, setLastProgressAt] = useState(() => Date.now())
+  const [nowMs, setNowMs] = useState(() => Date.now())
 
   // 跟踪之前的状态，用于检测状态变化
   const previousStatusRef = useRef<TaskStatus>('PENDING')
@@ -23,21 +34,42 @@ export function useTaskProgress(taskId: string, taskStatus?: string) {
   // 平滑进度更新（避免频繁更新）
   const progressUpdateTimer = useRef<NodeJS.Timeout | undefined>(undefined)
   const smoothedProgress = useRef(0)
+  const lastEventTimestampRef = useRef(0)
 
   useEffect(() => {
     // 同步外部任务状态，避免 SSE 中断后状态与列表状态不一致
     if (taskStatus) {
       setStatus(taskStatus as TaskStatus)
-      if (taskStatus === 'COMPLETED') {
+      setLastProgressAt(Date.now())
+      if (typeof taskProgress === 'number' && Number.isFinite(taskProgress)) {
+        const clamped = Math.max(0, Math.min(100, Math.round(taskProgress)))
+        smoothedProgress.current = clamped
+        setProgress(clamped)
+      } else if (taskStatus === 'COMPLETED') {
         smoothedProgress.current = 100
         setProgress(100)
       }
     }
-  }, [taskStatus])
+  }, [taskStatus, taskProgress])
+
+  useEffect(() => {
+    if (!ACTIVE_PROGRESS_STATUSES.has(status)) {
+      setNowMs(Date.now())
+      return
+    }
+
+    const timer = window.setInterval(() => {
+      setNowMs(Date.now())
+    }, 1000)
+
+    return () => {
+      window.clearInterval(timer)
+    }
+  }, [status])
 
   useEffect(() => {
     // 仅对排队中/处理中任务建立 SSE，避免 PENDING 任务占用连接
-    if (!taskId || !taskStatus || !['QUEUED', 'PROCESSING', 'DETECTING', 'SPLITTING'].includes(taskStatus)) {
+    if (!taskId || !taskStatus || !ACTIVE_PROGRESS_STATUSES.has(taskStatus as TaskStatus)) {
       return
     }
 
@@ -45,11 +77,31 @@ export function useTaskProgress(taskId: string, taskStatus?: string) {
 
     // 使用 taskService 的 SSE 监听
     eventSource = taskService.listenProgress(taskId, (data) => {
+      if (data.type === 'error') {
+        setIsConnected(false)
+        setError(new Error(data.errorMessage || data.errorCode || 'stream error'))
+        return
+      }
+
+      if (typeof data.progress !== 'number' || !data.status) {
+        return
+      }
+
+      if (data.timestamp < lastEventTimestampRef.current) {
+        return
+      }
+      lastEventTimestampRef.current = data.timestamp
+
       // 目标进度
-      const targetProgress = data.progress
+      const targetProgress = Math.max(0, Math.min(100, Math.round(data.progress)))
 
       // 平滑过渡到目标进度（每次最多增加 5%）
       const smoothUpdate = () => {
+        if (smoothedProgress.current > targetProgress) {
+          smoothedProgress.current = targetProgress
+          setProgress(targetProgress)
+          return
+        }
         if (smoothedProgress.current < targetProgress) {
           smoothedProgress.current = Math.min(
             targetProgress,
@@ -70,30 +122,36 @@ export function useTaskProgress(taskId: string, taskStatus?: string) {
 
       smoothUpdate()
       setStatus(data.status as TaskStatus)
-      setTotalScenes(data.total_scenes)
+      setTotalScenes(data.totalScenes ?? null)
       setIsConnected(true)
       setError(null)
+      setLastProgressAt(Date.now())
 
       // 检测状态变化并播放提示音
       const previousStatus = previousStatusRef.current
       if (data.status !== previousStatus) {
         if (data.status === 'COMPLETED' && previousStatus !== 'COMPLETED') {
           playSound('complete')
-        } else if (data.status === 'FAILED' && previousStatus !== 'FAILED') {
+        } else if (
+          (data.status === 'FAILED' && previousStatus !== 'FAILED') ||
+          (data.status === 'ANALYZE_FAILED' && previousStatus !== 'ANALYZE_FAILED')
+        ) {
           playSound('error')
         }
         previousStatusRef.current = data.status as TaskStatus
       }
 
       // 如果任务完成或失败，关闭连接
-      if (data.status === 'COMPLETED' || data.status === 'FAILED' ||
-          data.status === 'REVIEW_PENDING' || data.status === 'TIMELINE_READY') {
+      if (TERMINAL_PROGRESS_STATUSES.has(data.status)) {
         setIsConnected(false)
         if (eventSource) {
           eventSource.close()
           eventSource = null
         }
       }
+    }, (streamError) => {
+      setIsConnected(false)
+      setError(streamError)
     })
 
     // 连接成功
@@ -114,10 +172,17 @@ export function useTaskProgress(taskId: string, taskStatus?: string) {
     }
   }, [taskId, taskStatus])
 
-  return {
+  const presentation = buildProgressPresentation({
     progress,
     status,
+    resolvedConfig,
     totalScenes,
+    lastProgressAt,
+    nowMs,
+  })
+
+  return {
+    ...presentation,
     isConnected,
     error,
   }

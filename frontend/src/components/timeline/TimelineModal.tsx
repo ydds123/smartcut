@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { useUIStore } from '@/stores/uiStore'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
-import { useFinalizeTask } from '@/hooks/useTasks'
 import { taskService } from '@/services/taskService'
-import type { Scene, TaskStatus } from '@/types/task'
+import type { Scene, SplitStats, TaskStatus } from '@/types/task'
 import { TimelineModalErrorBoundary } from '@/components/error/TimelineModalErrorBoundary'
 import { useDraggableModal } from '@/hooks/useDraggableModal'
-
-const backendBaseUrl = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000'
+import { SceneListRail, type SceneListRailItem } from '@/components/shared/SceneListRail'
+import { resolveAssetUrl } from '@/utils/assetUrl'
 
 type SceneMark = 'STAR' | 'REVIEW' | 'APPROVED'
 type TimelineMarkerKind = 'SCENE_BOUNDARY'
@@ -36,25 +36,7 @@ interface TimelineMarkerSelectionApi {
   getSelectedMarkers: () => TimelineMarker[]
 }
 
-const PLAYBACK_RATES = [0.75, 1, 1.25, 1.5, 2]
-
-function resolveAssetUrl(pathValue: string | null): string | null {
-  if (!pathValue) {
-    return null
-  }
-
-  const normalized = pathValue.trim()
-  if (!normalized) {
-    return null
-  }
-
-  if (normalized.startsWith('http://') || normalized.startsWith('https://')) {
-    return normalized
-  }
-
-  const withLeadingSlash = normalized.startsWith('/') ? normalized : `/${normalized}`
-  return `${backendBaseUrl}${withLeadingSlash}`
-}
+const PLAYBACK_RATES = [0.5, 0.75, 1, 1.25, 1.5, 2]
 
 function formatTimeCode(ms: number): string {
   const totalSeconds = Math.max(0, Math.floor(ms / 1000))
@@ -70,6 +52,27 @@ function formatTimeCode(ms: number): string {
 
 function formatTimeRange(startMs: number, endMs: number): string {
   return `${formatTimeCode(startMs)} - ${formatTimeCode(endMs)}`
+}
+
+function formatElapsedMs(elapsedMs?: number): string {
+  if (!Number.isFinite(elapsedMs) || elapsedMs === undefined || elapsedMs <= 0) {
+    return '--'
+  }
+  if (elapsedMs >= 1000) {
+    return `${(elapsedMs / 1000).toFixed(elapsedMs >= 10000 ? 0 : 1)}s`
+  }
+  return `${Math.round(elapsedMs)}ms`
+}
+
+function formatSplitStatsSummary(stats: SplitStats | null): string | null {
+  if (!stats) {
+    return null
+  }
+  const total = Math.max(0, stats.totalScenes ?? 0)
+  const reused = Math.max(0, stats.reusedCount ?? 0)
+  const rendered = Math.max(0, stats.renderedCount ?? 0)
+  const fallback = stats.fallbackFullResplit ? '是' : '否'
+  return `上次切分：复用 ${reused}/${total} · 重切 ${rendered} · 回退全量 ${fallback} · 耗时 ${formatElapsedMs(stats.totalElapsedMs)}`
 }
 
 function getMarksStorageKey(taskId: string): string {
@@ -265,85 +268,12 @@ async function extractVideoPoster(videoUrl: string): Promise<string | null> {
   })
 }
 
-interface SceneListItemProps {
-  scene: Scene
-  index: number
-  isSelected: boolean
-  previewUrl: string | null
-  onSelect: () => void
-  rowRef: (element: HTMLDivElement | null) => void
-}
-
-function SceneListItem({
-  scene,
-  index,
-  isSelected,
-  previewUrl,
-  onSelect,
-  rowRef,
-}: SceneListItemProps) {
-  const [imageError, setImageError] = useState(false)
-
-  return (
-    <div
-      ref={rowRef}
-      className="flex items-stretch gap-2"
-      onClick={onSelect}
-      role="button"
-      tabIndex={0}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault()
-          onSelect()
-        }
-      }}
-    >
-      <div className="relative flex w-5 shrink-0 justify-center">
-        <span
-          className={`relative z-10 mt-3 h-3.5 w-3.5 rounded-full border-2 ${
-            isSelected ? 'border-primary bg-primary' : 'border-primary bg-[#09090b]'
-          }`}
-        />
-      </div>
-
-      <div
-        className={`flex-1 rounded-[10px] border p-1.5 transition-colors ${
-          isSelected
-            ? 'border-primary bg-info-bg shadow-[inset_0_0_0_1px_rgba(47,140,255,0.2)]'
-            : 'border-[#27272a] bg-[#18181b] hover:bg-[#1c1c1f]'
-        }`}
-      >
-        <div className={`relative aspect-[8/5] w-full overflow-hidden rounded-md border ${isSelected ? 'border-primary bg-info-bg' : 'border-[#27272a] bg-[#0f0f0f]'}`}>
-          {previewUrl && !imageError ? (
-            <img
-              src={previewUrl}
-              alt={`镜头 ${index + 1}`}
-              className="h-full w-full object-cover"
-              onError={() => setImageError(true)}
-            />
-          ) : (
-            <div className="flex h-full w-full items-center justify-center text-[10px] text-[#71717a]">
-              无预览
-            </div>
-          )}
-          <span className="absolute left-2 top-2 rounded bg-black/70 px-1.5 py-0.5 text-xs font-semibold text-white">
-            #{index + 1}
-          </span>
-          <span className="absolute bottom-2 left-2 rounded bg-black/70 px-1.5 py-0.5 text-[11px] text-white">
-            {formatTimeCode(scene.startMs)} - {formatTimeCode(scene.endMs)}
-          </span>
-        </div>
-      </div>
-    </div>
-  )
-}
-
 export function TimelineModal() {
-  const { isTimelineOpen, selectedTaskId, closeTimeline, addToast } = useUIStore()
+  const { isTimelineOpen, selectedTaskId, closeTimeline, addToast, openReviewModal } = useUIStore()
+  const queryClient = useQueryClient()
   const { modalRef, modalStyle, onHandlePointerDown, dragging } = useDraggableModal({
     isOpen: isTimelineOpen,
   })
-  const finalizeTask = useFinalizeTask()
 
   const [scenes, setScenes] = useState<Scene[]>([])
   const [loading, setLoading] = useState(false)
@@ -351,6 +281,7 @@ export function TimelineModal() {
   const [selectedSceneIndex, setSelectedSceneIndex] = useState<number | null>(null)
   const [taskStatus, setTaskStatus] = useState<TaskStatus | null>(null)
   const [taskDisplayName, setTaskDisplayName] = useState<string>('')
+  const [latestSplitStats, setLatestSplitStats] = useState<SplitStats | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [sceneMarks, setSceneMarks] = useState<Record<string, SceneMark>>({})
   const [selectedSceneIds, setSelectedSceneIds] = useState<Set<string>>(new Set())
@@ -361,9 +292,10 @@ export function TimelineModal() {
   const [isMuted, setIsMuted] = useState(false)
   const [playbackRate, setPlaybackRate] = useState(1)
   const [pendingAutoPlay, setPendingAutoPlay] = useState(false)
+  const [isSceneVideoPlaying, setIsSceneVideoPlaying] = useState(false)
+  const [isReturningToEdit, setIsReturningToEdit] = useState(false)
 
   const videoRef = useRef<HTMLVideoElement | null>(null)
-  const sceneItemRefs = useRef<Array<HTMLDivElement | null>>([])
   const markerSelectionApiRef = useRef<TimelineMarkerSelectionApi | null>(null)
   const posterExtractingIdsRef = useRef<Set<string>>(new Set())
   const posterTaskTokenRef = useRef(0)
@@ -407,9 +339,16 @@ export function TimelineModal() {
     [scenes, selectedSceneIds]
   )
 
-  const visibleSceneEntries = useMemo(
-    () => scenes.map((scene, index) => ({ scene, index })),
-    [scenes]
+  const timelineSceneItems = useMemo<SceneListRailItem[]>(
+    () =>
+      scenes.map((scene, index) => ({
+        id: scene.id,
+        index,
+        startMs: scene.startMs,
+        endMs: scene.endMs,
+        previewUrl: scenePosterMap[scene.id] ?? resolveAssetUrl(scene.thumbnailPath),
+      })),
+    [scenePosterMap, scenes]
   )
 
   const toggleMarker = useCallback((markerId: string) => {
@@ -651,6 +590,7 @@ export function TimelineModal() {
       setScenes(sortedScenes)
       setTaskStatus(taskDetail.status)
       setTaskDisplayName(taskDetail.displayName ?? '')
+      setLatestSplitStats(taskDetail.latestSplitStats ?? null)
       setSceneMarks(storedMarks)
       setSelectedSceneIds(validSelectedIds)
       setSelectedMarkerIds(validStoredMarkers)
@@ -702,10 +642,13 @@ export function TimelineModal() {
       setSearchQuery('')
       setTaskStatus(null)
       setTaskDisplayName('')
+      setLatestSplitStats(null)
       setAutoContinueEnabled(false)
       setIsMuted(false)
       setPlaybackRate(1)
       setPendingAutoPlay(false)
+      setIsSceneVideoPlaying(false)
+      setIsReturningToEdit(false)
       sequenceModeRef.current = false
       marksHydratedRef.current = false
       sessionHydratedRef.current = false
@@ -740,19 +683,6 @@ export function TimelineModal() {
       saveSession()
     }
   }, [isTimelineOpen, saveSession, selectedTaskId])
-
-  useEffect(() => {
-    if (selectedSceneIndex === null) {
-      return
-    }
-
-    const target = sceneItemRefs.current[selectedSceneIndex]
-    if (target) {
-      target.scrollIntoView({
-        block: 'nearest',
-      })
-    }
-  }, [selectedSceneIndex])
 
   useEffect(() => {
     const video = videoRef.current
@@ -798,21 +728,34 @@ export function TimelineModal() {
     setPendingAutoPlay(false)
   }, [addToast, pendingAutoPlay, selectedSceneVideoUrl])
 
-  const handleOpenSelectedSceneInNewTab = useCallback(() => {
-    if (!selectedSceneVideoUrl) {
+  const handleOpenSelectedSceneFolder = useCallback(async () => {
+    if (!selectedTaskId || !selectedScene?.id || !selectedScene.filePath) {
       addToast({
         type: 'warning',
-        message: '该镜头暂无可打开的切片文件',
+        message: '该镜头暂无可打开的切片目录',
       })
       return
     }
 
-    window.open(selectedSceneVideoUrl, '_blank', 'noopener,noreferrer')
-  }, [addToast, selectedSceneVideoUrl])
+    try {
+      await taskService.openSceneFolder(selectedTaskId, selectedScene.id)
+      addToast({
+        type: 'success',
+        message: '已打开切片所在文件夹',
+      })
+    } catch (error) {
+      console.error('Open scene folder failed:', error)
+      addToast({
+        type: 'error',
+        message: '打开文件夹失败，请检查后端权限',
+      })
+    }
+  }, [addToast, selectedScene, selectedTaskId])
 
   const handleSelectScene = useCallback(
     (index: number, options?: { autoplay?: boolean; fromSequence?: boolean }) => {
       setSelectedSceneIndex(index)
+      setIsSceneVideoPlaying(false)
       if (options?.autoplay) {
         setPendingAutoPlay(true)
       }
@@ -845,6 +788,7 @@ export function TimelineModal() {
   }, [addToast, autoContinueEnabled, selectedSceneVideoUrl])
 
   const handleVideoEnded = useCallback(() => {
+    setIsSceneVideoPlaying(false)
     if (!autoContinueEnabled || !sequenceModeRef.current || selectedSceneIndex === null) {
       return
     }
@@ -866,6 +810,7 @@ export function TimelineModal() {
   }, [addToast, autoContinueEnabled, handleSelectScene, scenes.length, selectedSceneIndex])
 
   const handleVideoPause = useCallback(() => {
+    setIsSceneVideoPlaying(false)
     const video = videoRef.current
     if (!video || video.ended) {
       return
@@ -1145,27 +1090,43 @@ export function TimelineModal() {
     })
   }, [addToast, selectedScenes])
 
-  const handleFinalize = useCallback(async () => {
-    if (!selectedTaskId) {
+  const handleReturnToEdit = useCallback(async () => {
+    if (!selectedTaskId || isReturningToEdit) {
       return
     }
+
     try {
-      await finalizeTask.mutateAsync(selectedTaskId)
+      setIsReturningToEdit(true)
+      const result = await taskService.resetReviewFromTimeline(selectedTaskId)
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['tasks'] }),
+        queryClient.invalidateQueries({ queryKey: ['tasks', selectedTaskId] }),
+        queryClient.invalidateQueries({ queryKey: ['tasks', selectedTaskId, 'review-data'] }),
+      ])
+
+      closeTimeline()
+      openReviewModal(selectedTaskId)
       addToast({
         type: 'success',
-        message: '任务已完成',
+        message: `已同步 ${result.scenesCount} 个镜头到审核页`,
       })
-      closeTimeline()
     } catch (error) {
-      console.error('Finalize task failed:', error)
+      console.error('Return to review failed:', error)
       addToast({
         type: 'error',
-        message: '完成任务失败，请稍后重试',
+        message: '返回编辑失败：无法同步当前工作台镜头',
       })
+    } finally {
+      setIsReturningToEdit(false)
     }
-  }, [addToast, closeTimeline, finalizeTask, selectedTaskId])
+  }, [addToast, closeTimeline, isReturningToEdit, openReviewModal, queryClient, selectedTaskId])
 
   const isTimelineReady = taskStatus === 'TIMELINE_READY'
+  const isDetailStatus =
+    taskStatus === 'COMPLETED'
+    || taskStatus === 'FAILED'
+    || taskStatus === 'ANALYZE_FAILED'
+  const splitStatsSummary = formatSplitStatsSummary(latestSplitStats)
 
   if (!isTimelineOpen) {
     return null
@@ -1174,7 +1135,7 @@ export function TimelineModal() {
   return (
     <TimelineModalErrorBoundary>
       <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5">
-        <div className="absolute inset-0 bg-black/45" onClick={closeTimeline} />
+        <div className="absolute inset-0 bg-[var(--sc-modal-overlay)]" onClick={closeTimeline} />
 
         <div
           role="dialog"
@@ -1183,30 +1144,42 @@ export function TimelineModal() {
           data-testid="timeline-modal"
           ref={modalRef}
           style={modalStyle}
-          className="relative flex h-[86vh] min-h-[720px] w-full max-w-[1380px] flex-col overflow-hidden rounded-2xl border border-[#27272a] bg-[#09090b] shadow-[0_18px_45px_rgba(15,23,42,0.24)]"
+          className="sc-modal-shell relative flex h-[86vh] min-h-[720px] w-full max-w-[1380px] flex-col overflow-hidden text-[var(--sc-text-primary)]"
         >
           <div
-            className={`flex items-center justify-between border-b border-[#27272a] bg-[#09090b] px-6 py-3.5 ${dragging ? 'cursor-grabbing' : 'cursor-move'}`}
+            className={`sc-modal-header flex items-center justify-between ${dragging ? 'cursor-grabbing' : 'cursor-move'}`}
             onPointerDown={onHandlePointerDown}
           >
             <div className="min-w-0">
-              <h2 id="timeline-modal-title" className="text-[26px] font-semibold leading-8 text-[#d4d4d8]">
+              <h2 id="timeline-modal-title" className="text-sm font-semibold text-[var(--sc-text-primary)]">
                 时间轴工作台
               </h2>
-              <p className="truncate text-sm text-[#71717a]">
+              <p className="truncate text-sm text-[var(--sc-text-secondary)]">
                 {taskDisplayName || selectedTaskId || '未命名任务'}
               </p>
+              {splitStatsSummary ? (
+                <p className="truncate text-xs text-[var(--sc-text-muted)]">{splitStatsSummary}</p>
+              ) : null}
             </div>
             <div className="flex items-center gap-2" data-drag-ignore="true">
+              {isDetailStatus && (
+                <button
+                  type="button"
+                  onClick={closeTimeline}
+                  className="sc-btn sc-btn-secondary h-8 px-3"
+                >
+                  返回工作台
+                </button>
+              )}
               {isTimelineReady && (
                 <>
                   <button
                     type="button"
-                    onClick={handleFinalize}
-                    disabled={finalizeTask.isPending}
-                    className="inline-flex h-8 items-center rounded-md bg-primary px-3 text-sm font-medium text-white transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:bg-[#3f3f46]"
+                    onClick={handleReturnToEdit}
+                    disabled={isReturningToEdit}
+                    className="sc-btn sc-btn-secondary h-8 px-3"
                   >
-                    {finalizeTask.isPending ? '提交中...' : '完成'}
+                    {isReturningToEdit ? '同步中...' : '返回编辑'}
                   </button>
                 </>
               )}
@@ -1214,7 +1187,7 @@ export function TimelineModal() {
                 type="button"
                 onClick={closeTimeline}
                 aria-label="关闭时间轴"
-                className="inline-flex h-8 w-8 items-center justify-center rounded-full text-[#71717a] transition-colors hover:bg-[#27272a]"
+                className="sc-btn sc-btn-ghost sc-btn-icon"
               >
                 <svg className="h-4.5 w-4.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path
@@ -1232,15 +1205,15 @@ export function TimelineModal() {
             {loading ? (
               <div className="flex h-full items-center justify-center">
                 <div className="flex flex-col items-center gap-3">
-                  <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
-                  <p className="text-sm text-[#71717a]">加载镜头中...</p>
+                  <div className="h-8 w-8 animate-spin rounded-full border-4 border-[var(--sc-accent)] border-t-transparent" />
+                  <p className="text-sm text-[var(--sc-text-muted)]">加载镜头中...</p>
                 </div>
               </div>
             ) : error ? (
               <div className="flex h-full items-center justify-center">
-                <Card className="p-8 text-center !bg-[#18181b] !shadow-none">
+                <Card className="sc-surface p-8 text-center !shadow-none">
                   <svg
-                    className="mx-auto mb-3 h-10 w-10 text-red-500"
+                    className="mx-auto mb-3 h-10 w-10 text-[var(--sc-danger)]"
                     fill="none"
                     stroke="currentColor"
                     viewBox="0 0 24 24"
@@ -1252,7 +1225,7 @@ export function TimelineModal() {
                       d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
                     />
                   </svg>
-                  <p className="text-sm text-[#71717a]">{error}</p>
+                  <p className="text-sm text-[var(--sc-text-muted)]">{error}</p>
                   <div className="mt-4">
                     <Button variant="secondary" size="sm" onClick={loadScenes}>
                       重试
@@ -1262,69 +1235,88 @@ export function TimelineModal() {
               </div>
             ) : scenes.length === 0 ? (
               <div className="flex h-full items-center justify-center">
-                <Card className="p-8 text-center text-[#71717a] !bg-[#18181b] !shadow-none">
+                <Card className="sc-surface p-8 text-center text-[var(--sc-text-muted)] !shadow-none">
                   <p className="text-sm">暂无镜头数据</p>
                   <p className="mt-1 text-xs">请先处理视频任务</p>
                 </Card>
               </div>
             ) : (
               <div className="flex h-full min-h-0 gap-3.5">
-                <Card className="flex w-[270px] min-w-[270px] flex-col border border-[#27272a] !bg-[#18181b] !shadow-none p-2">
-                  <div className="mb-2 rounded-md border border-[#27272a] bg-[#0f0f0f] px-2 py-1.5 text-xs text-[#71717a]">
-                    <div className="font-medium text-[#d4d4d8]">
-                      镜头 {scenes.length}
-                    </div>
+                <div className="flex w-[270px] min-w-[270px] min-h-0">
+                  <SceneListRail
+                    items={timelineSceneItems}
+                    selectedIndex={selectedSceneIndex}
+                    onSelect={(index) => handleSelectScene(index)}
+                    variant="workspace"
+                    density="comfortable"
+                    isPlaying={isSceneVideoPlaying}
+                    enableAutoScrollOnSelection
+                    autoScrollTrigger="always"
+                    showDurationBadge
+                    showFooterTotalDuration
+                    listTestId="timeline-scenes-grid"
+                    formatTimeLabel={formatTimeCode}
+                  />
+                </div>
 
-                  </div>
-                  <div data-testid="timeline-scenes-grid" className="relative min-h-0 flex-1 overflow-y-auto pr-0.5">
-                    <div className="relative space-y-2">
-                      {visibleSceneEntries.length > 0 ? (
-                        <span className="pointer-events-none absolute bottom-0 left-[10px] top-0 w-px bg-primary" />
-                      ) : null}
-                      {visibleSceneEntries.map(({ scene, index }) => (
-                        <SceneListItem
-                          key={scene.id}
-                          scene={scene}
-                          index={index}
-                          isSelected={selectedSceneIndex === index}
-                          previewUrl={scenePosterMap[scene.id] ?? resolveAssetUrl(scene.thumbnailPath)}
-                          onSelect={() => handleSelectScene(index)}
-                          rowRef={(element) => {
-                            sceneItemRefs.current[index] = element
-                          }}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                </Card>
-
-                <Card className="flex min-h-0 flex-1 flex-col border border-[#27272a] !bg-[#18181b] !shadow-none p-3">
+                <Card className="flex min-h-0 flex-1 flex-col border border-[var(--sc-border-subtle)] !bg-[var(--sc-bg-panel)] !shadow-none p-3">
                   {selectedScene ? (
                     <>
-                      <div className="flex items-center justify-between border-b border-[#27272a] pb-2.5">
-                        <p className="text-xs font-semibold text-[#71717a]">
+                      <div className="flex items-center justify-between border-b border-[var(--sc-border-subtle)] pb-2.5">
+                        <p className="text-xs font-semibold text-[var(--sc-text-secondary)]">
                           场景 #{selectedSceneIndex! + 1} · {formatTimeCode(selectedScene.startMs)} - {formatTimeCode(selectedScene.endMs)}
                         </p>
                         <div className="flex items-center gap-2">
                           <button
                             type="button"
+                            role="switch"
+                            aria-checked={autoContinueEnabled}
+                            aria-label="自动续播"
                             onClick={() => setAutoContinueEnabled((value) => !value)}
-                            className="inline-flex h-8 items-center rounded-md border border-[#27272a] bg-[#0f0f0f] px-3 text-xs font-medium text-[#71717a]"
+                            className={`sc-btn inline-flex h-8 items-center gap-2 px-2.5 text-xs font-medium ${
+                              autoContinueEnabled
+                                ? 'border-[var(--sc-accent)] bg-[var(--sc-accent-soft)] text-[var(--sc-text-primary)]'
+                                : 'border-[var(--sc-border-subtle)] bg-[var(--sc-bg-surface)] text-[var(--sc-text-secondary)] hover:bg-[var(--sc-bg-elevated)]'
+                            }`}
                           >
-                            自动续播（{autoContinueEnabled ? '已启用' : '未启用'}）
+                            <span
+                              className={`relative inline-flex h-4.5 w-8 items-center rounded-full transition-colors ${
+                                autoContinueEnabled ? 'bg-[var(--sc-accent)]' : 'bg-[var(--sc-border-strong)]'
+                              }`}
+                            >
+                              <span
+                                className={`h-3.5 w-3.5 rounded-full bg-white shadow transition-transform ${
+                                  autoContinueEnabled ? 'translate-x-[14px]' : 'translate-x-[2px]'
+                                }`}
+                              />
+                            </span>
+                            <span>自动续播</span>
                           </button>
-                          <button
-                            type="button"
-                            onClick={handleOpenSelectedSceneInNewTab}
-                            className="inline-flex h-8 items-center rounded-md border border-[#27272a] bg-[#0f0f0f] px-3 text-xs font-medium text-[#71717a]"
-                          >
-                            新窗口打开原切片
-                          </button>
+                          <label className="inline-flex h-8 items-center gap-2 rounded-md border border-[var(--sc-border-subtle)] bg-[var(--sc-bg-surface)] px-2 text-xs font-medium text-[var(--sc-text-secondary)]">
+                            倍速
+                            <select
+                              value={playbackRate}
+                              onChange={(event) => {
+                                const nextRate = Number(event.target.value)
+                                if (PLAYBACK_RATES.includes(nextRate)) {
+                                  setPlaybackRate(nextRate)
+                                }
+                              }}
+                              className="sc-input h-6 px-1.5 text-xs"
+                              aria-label="时间轴预览播放速度"
+                            >
+                              {PLAYBACK_RATES.map((rate) => (
+                                <option key={rate} value={rate}>
+                                  {rate}x
+                                </option>
+                              ))}
+                            </select>
+                          </label>
                         </div>
                       </div>
 
                       <div className="mt-2.5 flex min-h-0 flex-1 flex-col overflow-hidden">
-                        <div className="overflow-hidden rounded-lg border border-[#27272a] bg-black">
+                        <div className="overflow-hidden rounded-lg border border-[var(--sc-border-subtle)] bg-black">
                           {selectedSceneVideoUrl ? (
                             <video
                               key={selectedScene.id}
@@ -1334,6 +1326,7 @@ export function TimelineModal() {
                               preload="metadata"
                               className="aspect-video w-full bg-black"
                               onPlay={() => {
+                                setIsSceneVideoPlaying(true)
                                 if (autoContinueEnabled) {
                                   sequenceModeRef.current = true
                                 }
@@ -1344,37 +1337,39 @@ export function TimelineModal() {
                               onTimeUpdate={handleVideoTimeUpdate}
                             />
                           ) : (
-                            <div className="flex aspect-video items-center justify-center text-sm text-[#71717a]">
+                            <div className="flex aspect-video items-center justify-center text-sm text-[var(--sc-text-muted)]">
                               该镜头暂无可预览视频文件
                             </div>
                           )}
                         </div>
 
-                        <div className="mt-2 rounded-md border border-[#27272a] bg-[#0f0f0f] px-3 py-2 text-xs text-[#71717a]">
+                        <div className="mt-2 rounded-md border border-[var(--sc-border-subtle)] bg-[var(--sc-bg-surface)] px-3 py-2 text-xs text-[var(--sc-text-secondary)]">
                           已选择场景 #{selectedSceneIndex! + 1}
                         </div>
                       </div>
                     </>
                   ) : (
-                    <div className="flex h-full items-center justify-center text-sm text-[#71717a]">
+                    <div className="flex h-full items-center justify-center text-sm text-[var(--sc-text-muted)]">
                       请选择镜头
                     </div>
                   )}
 
-                  <div className="mt-2 flex items-center justify-end gap-2 border-t border-[#27272a] pt-2">
+                  <div className="mt-2 flex items-center justify-end gap-2 border-t border-[var(--sc-border-subtle)] pt-2">
                     <button
                       type="button"
-                      onClick={handleOpenSelectedSceneInNewTab}
-                      className="inline-flex h-8 items-center rounded-md border border-[#27272a] bg-[#0f0f0f] px-3 text-sm font-medium text-[#71717a]"
+                      onClick={() => {
+                        void handleOpenSelectedSceneFolder()
+                      }}
+                      className="sc-btn sc-btn-secondary h-8 px-3 text-[var(--sc-text-secondary)]"
                     >
-                      打开原切片
+                      打开所在文件夹
                     </button>
                     <button
                       type="button"
                       onClick={closeTimeline}
-                      className="inline-flex h-8 items-center rounded-md border border-[#27272a] bg-[#18181b] px-3 text-sm font-medium text-[#d4d4d8]"
+                      className="sc-btn sc-btn-secondary h-8 px-3"
                     >
-                      关闭
+                      {isDetailStatus ? '返回工作台' : '关闭'}
                     </button>
                   </div>
 

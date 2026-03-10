@@ -49,9 +49,9 @@ export class TimelineModalErrorBoundary extends Component<Props, State> {
 
       return (
         <div className="flex items-center justify-center h-64">
-          <div className="text-center p-8">
+          <div className="p-8 text-center">
             <svg
-              className="w-16 h-16 text-red-500 mx-auto mb-4"
+              className="mx-auto mb-4 h-16 w-16 text-[var(--sc-danger)]"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
@@ -63,15 +63,15 @@ export class TimelineModalErrorBoundary extends Component<Props, State> {
                 d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
               />
             </svg>
-            <h3 className="text-lg font-semibold text-gray-800 mb-2">
+            <h3 className="mb-2 text-lg font-semibold text-[var(--sc-text-primary)]">
               镜头加载失败
             </h3>
-            <p className="text-gray-600 mb-4">
+            <p className="mb-4 text-[var(--sc-text-secondary)]">
               加载镜头时发生错误，请稍后重试
             </p>
             <button
               onClick={() => window.location.reload()}
-              className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+              className="sc-btn sc-btn-primary h-9 px-4 text-sm"
             >
               重新加载
             </button>

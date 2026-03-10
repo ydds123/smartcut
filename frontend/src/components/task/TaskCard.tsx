@@ -4,11 +4,16 @@ import { StatusBadge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
 import { Checkbox } from '@/components/ui/checkbox'
-import { useDeleteTask, useProcessTask, useStartReview } from '@/hooks/useTasks'
+import { useDeleteTask, useStartReview } from '@/hooks/useTasks'
 import { useUIStore } from '@/stores/uiStore'
 import { useTaskProgress } from '@/hooks/useTaskProgress'
-import type { Task } from '@/types/task'
+import {
+  DELETABLE_TASK_STATUSES,
+  PROGRESS_VISIBLE_TASK_STATUSES,
+  type Task,
+} from '@/types/task'
 import { uploadService } from '@/services/uploadService'
+import { canOpenTaskPreview, canRetryTaskPreview } from './taskPreviewState'
 
 interface TaskCardProps {
   task: Task
@@ -21,25 +26,28 @@ export const TaskCard = memo(function TaskCard({
   selected,
   onSelectChange,
 }: TaskCardProps) {
-  const { openTimeline, openReviewModal } = useUIStore()
+  const { openReviewModal } = useUIStore()
   const deleteTask = useDeleteTask()
-  const processTask = useProcessTask()
   const startReview = useStartReview()
-  const { progress, status, totalScenes } = useTaskProgress(task.id, task.status)
+  const { progress, status, totalScenes } = useTaskProgress(
+    task.id,
+    task.status,
+    task.progress,
+    task.resolvedConfig
+  )
   const liveStatus = status || task.status
 
-  const displayProgress = Math.min(100, Math.max(progress ?? 0, task.progress ?? 0))
+  const displayProgress = Math.max(0, Math.min(100, progress ?? task.progress ?? 0))
   const shotsCount = totalScenes ?? task.shotsCount ?? task.totalScenes
-  const isProcessing = ['PROCESSING', 'QUEUED', 'DETECTING', 'SPLITTING'].includes(liveStatus)
+  const isProcessing = PROGRESS_VISIBLE_TASK_STATUSES.includes(liveStatus)
+  const canPreviewScenes = canOpenTaskPreview(task, liveStatus)
+  const canRetryPreview = canRetryTaskPreview(task, liveStatus)
+  const canDelete = DELETABLE_TASK_STATUSES.includes(liveStatus)
 
   const handleDelete = () => {
     if (confirm(`确定要删除任务 "${task.displayName}" 吗？`)) {
       deleteTask.mutate(task.id)
     }
-  }
-
-  const handleProcess = () => {
-    processTask.mutate(task.id)
   }
 
   const handleStartReview = () => {
@@ -50,11 +58,7 @@ export const TaskCard = memo(function TaskCard({
     openReviewModal(task.id)
   }
 
-  const handleViewResult = () => {
-    openTimeline(task.id)
-  }
-
-  const isBusy = processTask.isPending || deleteTask.isPending || startReview.isPending
+  const isBusy = deleteTask.isPending || startReview.isPending
 
   return (
     <Card variant="bordered" className="transition-shadow hover:shadow-md">
@@ -67,10 +71,10 @@ export const TaskCard = memo(function TaskCard({
             className="mt-1"
           />
           <div className="min-w-0 flex-1">
-            <h3 className="truncate text-base font-semibold text-gray-900" title={task.displayName}>
+            <h3 className="truncate text-base font-semibold text-[var(--sc-text-primary)]" title={task.displayName}>
               {task.displayName}
             </h3>
-            <p className="text-xs text-gray-500">{uploadService.formatFileSize(task.fileSize)}</p>
+            <p className="text-xs text-[var(--sc-text-muted)]">{uploadService.formatFileSize(task.fileSize)}</p>
           </div>
         </div>
         <StatusBadge status={liveStatus} />
@@ -80,41 +84,24 @@ export const TaskCard = memo(function TaskCard({
         <div className="space-y-3">
           {isProcessing && <Progress value={displayProgress} showLabel />}
 
-          <div className="text-sm text-gray-600">
+          <div className="text-sm text-[var(--sc-text-secondary)]">
             镜头数 <span className="font-medium">{shotsCount ?? '--'}</span>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            {liveStatus === 'PENDING' && (
-              <>
-                <Button size="sm" onClick={handleProcess} isLoading={processTask.isPending}>
-                  直接处理
-                </Button>
-                <Button size="sm" variant="secondary" onClick={handleStartReview} isLoading={startReview.isPending}>
-                  检测并审核
-                </Button>
-              </>
-            )}
-
-            {liveStatus === 'REVIEW_PENDING' && (
-              <Button size="sm" onClick={handleOpenReview} disabled={isBusy}>
-                查看并编辑
+            {canPreviewScenes && (
+              <Button size="sm" variant="secondary" onClick={handleOpenReview} disabled={isBusy}>
+                预览分镜
               </Button>
             )}
 
-            {liveStatus === 'TIMELINE_READY' && (
-              <Button size="sm" variant="secondary" onClick={handleViewResult} disabled={isBusy}>
-                查看工作台
+            {canRetryPreview && (
+              <Button size="sm" variant="secondary" onClick={handleStartReview} isLoading={startReview.isPending}>
+                重试预览
               </Button>
             )}
 
-            {(liveStatus === 'COMPLETED' || liveStatus === 'FAILED') && (
-              <Button size="sm" variant="secondary" onClick={handleViewResult} disabled={isBusy}>
-                查看详情
-              </Button>
-            )}
-
-            {(['PENDING', 'QUEUED', 'PROCESSING', 'FAILED', 'REVIEW_PENDING', 'REVIEW_APPROVED', 'SPLITTING'] as const).includes(liveStatus as any) && (
+            {canDelete && (
               <Button
                 size="sm"
                 variant="danger"

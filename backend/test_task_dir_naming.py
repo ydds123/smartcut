@@ -41,6 +41,31 @@ class TestTaskDirNaming(unittest.TestCase):
             self.assertEqual(first.name, "clip")
             self.assertEqual(second.name, "clip_001")
 
+    def test_upload_file_numbering_with_extension(self):
+        with TemporaryDirectory() as tmpdir:
+            upload_root = Path(tmpdir)
+
+            first = FileService._build_unique_upload_path(upload_root, "demo.mp4")
+            first.write_bytes(b"first")
+            second = FileService._build_unique_upload_path(upload_root, "demo.mp4")
+            second.write_bytes(b"second")
+            third = FileService._build_unique_upload_path(upload_root, "demo.mp4")
+
+            self.assertEqual(first.name, "demo.mp4")
+            self.assertEqual(second.name, "demo_001.mp4")
+            self.assertEqual(third.name, "demo_002.mp4")
+
+    def test_upload_file_numbering_without_extension(self):
+        with TemporaryDirectory() as tmpdir:
+            upload_root = Path(tmpdir)
+
+            first = FileService._build_unique_upload_path(upload_root, "clip")
+            first.write_bytes(b"first")
+            second = FileService._build_unique_upload_path(upload_root, "clip")
+
+            self.assertEqual(first.name, "clip")
+            self.assertEqual(second.name, "clip_001")
+
     def test_delete_by_task_marker(self):
         original_task_dir = settings.TASK_DIR
         original_upload_dir = settings.UPLOAD_DIR
@@ -60,13 +85,19 @@ class TestTaskDirNaming(unittest.TestCase):
                 task_dir.mkdir(parents=True, exist_ok=True)
                 (task_dir / ".task_id").write_text(task_id, encoding="utf-8")
 
-                upload_file = upload_root / f"{task_id}_demo.mp4"
-                upload_file.write_bytes(b"test")
+                upload_file = upload_root / "demo.mp4"
+                upload_file.write_bytes(b"target")
+                sibling_file = upload_root / "demo_001.mp4"
+                sibling_file.write_bytes(b"sibling")
+                preview_file = upload_root / f"{task_id}_preview.jpg"
+                preview_file.write_bytes(b"preview")
 
-                FileService.delete_task_files(task_id)
+                FileService.delete_task_files(task_id, upload_file_path=str(upload_file))
 
                 self.assertFalse(task_dir.exists())
                 self.assertFalse(upload_file.exists())
+                self.assertTrue(sibling_file.exists())
+                self.assertFalse(preview_file.exists())
         finally:
             settings.TASK_DIR = original_task_dir
             settings.UPLOAD_DIR = original_upload_dir

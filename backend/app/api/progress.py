@@ -16,6 +16,38 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _encode_sse(payload: dict) -> str:
+    return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+def _build_progress_event(
+    *,
+    event_type: str,
+    task_id: str,
+    status: str | None = None,
+    progress: int | None = None,
+    total_scenes: int | None = None,
+    error_code: str | None = None,
+    error_message: str | None = None,
+) -> str:
+    payload = {
+        "type": event_type,
+        "task_id": task_id,
+        "timestamp": time.time(),
+    }
+    if status is not None:
+        payload["status"] = status
+    if progress is not None:
+        payload["progress"] = progress
+    if total_scenes is not None:
+        payload["total_scenes"] = total_scenes
+    if error_code is not None:
+        payload["error_code"] = error_code
+    if error_message is not None:
+        payload["error_message"] = error_message
+    return _encode_sse(payload)
+
+
 def _fetch_task_snapshot(task_id: str):
     """使用短会话读取任务快照，降低连接池占用。"""
     with SessionLocal() as db:
@@ -32,21 +64,33 @@ async def task_progress_stream(task_id: str):
     last_status = None
     last_total_scenes = None
     no_update_count = 0
-    max_no_update = 30  # 最多 30 次无更新后关闭连接
+    max_no_update_idle = 30  # 非活跃状态最多 30 次无更新后关闭连接
     heartbeat_every = 5  # 定期发送注释帧，避免网关回收空闲连接
+    active_statuses = {"QUEUED", "PROCESSING", "DETECTING", "SPLITTING", "REVIEW_APPROVED"}
+    terminal_statuses = {"COMPLETED", "FAILED", "REVIEW_PENDING", "TIMELINE_READY"}
 
     try:
-        while no_update_count < max_no_update:
+        while True:
             try:
                 task = _fetch_task_snapshot(task_id)
             except SQLAlchemyError as exc:
                 logger.warning(f"SSE DB query failed for task {task_id}: {exc}")
-                yield f"data: {json.dumps({'error': 'db query failed'})}\n\n"
+                yield _build_progress_event(
+                    event_type="error",
+                    task_id=task_id,
+                    error_code="db_query_failed",
+                    error_message="database query failed",
+                )
                 await asyncio.sleep(1.5)
                 continue
 
             if not task:
-                yield f"data: {json.dumps({'error': 'Task not found'})}\n\n"
+                yield _build_progress_event(
+                    event_type="error",
+                    task_id=task_id,
+                    error_code="task_not_found",
+                    error_message="Task not found",
+                )
                 break
 
             # 检查是否有变化
@@ -57,14 +101,14 @@ async def task_progress_stream(task_id: str):
             )
 
             if has_changes:
-                data = {
-                    "task_id": task.id,
-                    "progress": task.progress,
-                    "status": task.status,
-                    "total_scenes": task.total_scenes,
-                    "timestamp": time.time(),
-                }
-                yield f"data: {json.dumps(data)}\n\n"
+                is_terminal = task.status in terminal_statuses
+                yield _build_progress_event(
+                    event_type="terminal" if is_terminal else "progress",
+                    task_id=task.id,
+                    progress=task.progress,
+                    status=task.status,
+                    total_scenes=task.total_scenes,
+                )
 
                 last_progress = task.progress
                 last_status = task.status
@@ -74,16 +118,20 @@ async def task_progress_stream(task_id: str):
                 no_update_count += 1
                 if no_update_count % heartbeat_every == 0:
                     yield ": keepalive\n\n"
+                # 仅在非活跃状态下执行空闲断流，避免长时间 DETECTING 期间被误判“卡住”。
+                if task.status not in active_statuses and no_update_count >= max_no_update_idle:
+                    logger.debug("SSE stream idle timeout for task %s (status=%s)", task_id, task.status)
+                    break
 
             # 任务完成或失败时关闭
-            if task.status in ["COMPLETED", "FAILED"]:
+            if task.status in terminal_statuses:
                 logger.info(f"Task {task_id} finished with status {task.status}")
                 break
 
             # 动态调整推送间隔，减少高并发时数据库压力
-            if task.status == "PROCESSING":
+            if task.status in {"PROCESSING", "SPLITTING"}:
                 await asyncio.sleep(0.6)
-            elif task.status == "QUEUED":
+            elif task.status in {"QUEUED", "DETECTING", "REVIEW_APPROVED"}:
                 await asyncio.sleep(1.0)
             else:
                 await asyncio.sleep(1.6)
@@ -93,7 +141,12 @@ async def task_progress_stream(task_id: str):
         logger.debug(f"SSE client disconnected for task {task_id}")
     except Exception as e:
         logger.error(f"SSE error for task {task_id}: {str(e)}")
-        yield f"data: {json.dumps({'error': str(e)})}\n\n"
+        yield _build_progress_event(
+            event_type="error",
+            task_id=task_id,
+            error_code="stream_error",
+            error_message=str(e),
+        )
 
 
 @router.get("/tasks/{task_id}/progress")

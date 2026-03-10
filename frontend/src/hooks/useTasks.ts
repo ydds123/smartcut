@@ -1,6 +1,14 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { taskService } from '@/services/taskService'
-import type { ProcessTaskOptions, ReviewScene, Task } from '@/types/task'
+import {
+  ACTIVE_TASK_STATUSES,
+  type LocalPrecisionPreviewRequest,
+  type ProcessTaskOptions,
+  type ReviewScene,
+  type Task,
+} from '@/types/task'
+
+const ACTIVE_TASK_STATUS_SET = new Set(ACTIVE_TASK_STATUSES)
 
 /**
  * 获取任务列表 Hook
@@ -14,7 +22,15 @@ export function useTasks() {
   return useQuery<Task[]>({
     queryKey: ['tasks'],
     queryFn: taskService.getAll,
-    refetchInterval: 5000, // 每 5 秒自动轮询
+    // 仅在存在活跃任务时轮询，避免空转请求。
+    refetchInterval: (query) => {
+      const tasks = (query.state.data as Task[] | undefined) ?? []
+      if (!tasks.length) {
+        return false
+      }
+      const hasActiveTask = tasks.some((task) => ACTIVE_TASK_STATUS_SET.has(task.status))
+      return hasActiveTask ? 5000 : false
+    },
     staleTime: 5000, // 5 秒内数据视为新鲜
   })
 }
@@ -101,12 +117,17 @@ export function useTaskResult(id: string) {
 }
 
 /**
- * 开始检测并审核 Hook
+ * 开始分镜预览检测 Hook
  */
 export function useStartReview() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (id: string) => taskService.startReview(id),
+    mutationFn: (payload: { id: string; options?: ProcessTaskOptions } | string) => {
+      if (typeof payload === 'string') {
+        return taskService.startReview(payload)
+      }
+      return taskService.startReview(payload.id, payload.options)
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tasks'] })
     },
@@ -139,27 +160,32 @@ export function useSaveReviewData() {
 }
 
 /**
+ * 局部高精度预览 Hook
+ */
+export function useLocalPrecisionPreview() {
+  return useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: LocalPrecisionPreviewRequest }) =>
+      taskService.localPrecisionPreview(id, payload),
+  })
+}
+
+/**
  * 确认并切分 Hook
  */
 export function useApproveReview() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (id: string) => taskService.approveReview(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['tasks'] })
+    mutationFn: (payload: { id: string; options?: ProcessTaskOptions } | string) => {
+      if (typeof payload === 'string') {
+        return taskService.approveReview(payload)
+      }
+      return taskService.approveReview(payload.id, payload.options)
     },
-  })
-}
-
-/**
- * 完成任务 Hook
- */
-export function useFinalizeTask() {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: (id: string) => taskService.finalizeTask(id),
-    onSuccess: () => {
+    onSuccess: (_data, payload) => {
+      const taskId = typeof payload === 'string' ? payload : payload.id
       queryClient.invalidateQueries({ queryKey: ['tasks'] })
+      queryClient.invalidateQueries({ queryKey: ['tasks', taskId] })
+      queryClient.invalidateQueries({ queryKey: ['tasks', taskId, 'review-data'] })
     },
   })
 }

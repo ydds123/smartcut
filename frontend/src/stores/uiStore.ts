@@ -1,5 +1,13 @@
 import { create } from 'zustand'
 
+function createToastId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  const perfPart = typeof performance !== 'undefined' ? Math.floor(performance.now() * 1000) : 0
+  return `toast-${Date.now()}-${perfPart}`
+}
+
 /**
  * Toast 消息类型
  */
@@ -25,6 +33,8 @@ interface UIState {
   isUploadModalOpen: boolean
   isReviewModalOpen: boolean
   reviewTaskId: string | null
+  isStoryIntroModalOpen: boolean
+  storyIntroTaskId: string | null
 
   // Toast 队列
   toasts: Toast[]
@@ -36,6 +46,8 @@ interface UIState {
   closeUploadModal: () => void
   openReviewModal: (taskId: string) => void
   closeReviewModal: () => void
+  openStoryIntroModal: (taskId: string) => void
+  closeStoryIntroModal: () => void
   addToast: (toast: Omit<Toast, 'id'>) => void
   removeToast: (id: string) => void
   clearToasts: () => void
@@ -56,6 +68,8 @@ export const useUIStore = create<UIState>((set, get) => ({
   isUploadModalOpen: false,
   isReviewModalOpen: false,
   reviewTaskId: null,
+  isStoryIntroModalOpen: false,
+  storyIntroTaskId: null,
   toasts: [],
 
   // Actions
@@ -93,8 +107,20 @@ export const useUIStore = create<UIState>((set, get) => ({
       reviewTaskId: null,
     }),
 
+  openStoryIntroModal: (taskId: string) =>
+    set({
+      isStoryIntroModalOpen: true,
+      storyIntroTaskId: taskId,
+    }),
+
+  closeStoryIntroModal: () =>
+    set({
+      isStoryIntroModalOpen: false,
+      storyIntroTaskId: null,
+    }),
+
   addToast: (toast) => {
-    const id = Math.random().toString(36).substring(7)
+    const id = createToastId()
     const newToast: Toast = {
       id,
       type: toast.type || 'info',

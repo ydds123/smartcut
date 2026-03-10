@@ -62,7 +62,7 @@ export function UploadModal() {
       startUpload()
 
       try {
-        await uploadService.upload(
+        const uploadedTask = await uploadService.upload(
           {
             displayName: file.name,
             file,
@@ -70,11 +70,19 @@ export function UploadModal() {
           ({ percentage }) => updateProgress(percentage)
         )
 
-        addToast({
-          type: 'success',
-          message: `上传成功: ${file.name}`,
-        })
-        playSound('success')
+        if (uploadedTask.status === 'FAILED') {
+          addToast({
+            type: 'warning',
+            message: `上传成功，但自动检测分镜失败，可在列表中重试预览：${file.name}`,
+          })
+          playSound('error')
+        } else {
+          addToast({
+            type: 'success',
+            message: `上传成功，已开始检测分镜：${file.name}`,
+          })
+          playSound('success')
+        }
         await queryClient.invalidateQueries({ queryKey: ['tasks'] })
         closeUploadModal()
       } catch {
@@ -132,7 +140,7 @@ export function UploadModal() {
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 sm:p-6">
       <div
-        className="absolute inset-0 bg-black/40"
+        className="absolute inset-0 bg-[var(--sc-modal-overlay)]"
         onClick={() => {
           if (!isUploading) {
             closeUploadModal()
@@ -146,89 +154,93 @@ export function UploadModal() {
         aria-labelledby="upload-modal-title"
         ref={modalRef}
         style={modalStyle}
-        className="relative w-full max-w-3xl rounded-3xl border border-gray-200 bg-white p-6 shadow-2xl sm:p-8"
+        className="sc-modal-shell relative w-full max-w-3xl overflow-hidden"
       >
         <div
-          className={`flex items-start justify-between gap-4 ${dragging ? 'cursor-grabbing' : 'cursor-move'}`}
+          className={`sc-modal-header flex items-center justify-between gap-4 ${dragging ? 'cursor-grabbing' : 'cursor-move'}`}
           onPointerDown={onHandlePointerDown}
         >
-          <h2 id="upload-modal-title" className="text-3xl font-semibold text-gray-600">
+          <h2 id="upload-modal-title" className="text-sm font-semibold text-[var(--sc-text-primary)]">
             添加来源
           </h2>
           <button
             type="button"
             onClick={() => closeUploadModal()}
             data-drag-ignore="true"
-            className="inline-flex h-9 w-9 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-info-bg"
+            className="sc-btn sc-btn-ghost sc-btn-icon disabled:cursor-not-allowed disabled:opacity-60"
             aria-label="关闭上传窗口"
             disabled={isUploading}
           >
-            <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor">
+            <svg viewBox="0 0 24 24" className="h-4.5 w-4.5" fill="none" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 6l12 12M18 6l-12 12" />
             </svg>
           </button>
         </div>
 
-        <div
-          role="button"
-          tabIndex={isUploading ? -1 : 0}
-          onClick={openFilePicker}
-          onKeyDown={(event) => {
-            if (!isUploading && (event.key === 'Enter' || event.key === ' ')) {
-              event.preventDefault()
-              openFilePicker()
-            }
-          }}
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
-          onDrop={handleDrop}
-          className={`mt-6 rounded-2xl border-2 border-dashed p-10 text-center transition-colors sm:p-12 ${
-            isDragging ? 'border-primary bg-info-bg' : 'border-gray-200 bg-white/90'
-          } ${isUploading ? 'pointer-events-none opacity-70' : 'cursor-pointer'}`}
-        >
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="video/mp4,video/quicktime,video/x-msvideo,video/x-matroska"
-            onChange={handleFileInput}
-            className="hidden"
-            disabled={isUploading}
-          />
-
-          <p className="text-4xl font-medium text-gray-600">
-            {isDragging ? '释放文件以上传' : '点击或拖放文件上传'}
-          </p>
-          <p className="mt-3 text-sm text-gray-400">支持 MP4/MOV/AVI/MKV，最大 500MB</p>
-
-          <div className="mt-8 flex justify-center">
-            <Button
-              size="sm"
-              variant="secondary"
-              className="rounded-full px-5"
-              disabled={isUploading}
-              onClick={(event) => {
-                event.stopPropagation()
+        <div className="p-6 sm:p-7">
+          <div
+            role="button"
+            tabIndex={isUploading ? -1 : 0}
+            onClick={openFilePicker}
+            onKeyDown={(event) => {
+              if (!isUploading && (event.key === 'Enter' || event.key === ' ')) {
+                event.preventDefault()
                 openFilePicker()
-              }}
-            >
-              上传视频文件
-            </Button>
-          </div>
+              }
+            }}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+            className={`rounded-xl border-2 border-dashed p-10 text-center transition-colors sm:p-12 ${
+              isDragging
+                ? 'border-[var(--sc-accent)] bg-[var(--sc-accent-soft)]'
+                : 'border-[var(--sc-border-strong)] bg-[var(--sc-bg-contrast)]'
+            } ${isUploading ? 'pointer-events-none opacity-70' : 'cursor-pointer'}`}
+          >
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="video/mp4,video/quicktime,video/x-msvideo,video/x-matroska"
+              onChange={handleFileInput}
+              className="hidden"
+              disabled={isUploading}
+            />
 
-          {isUploading && (
-            <div className="mx-auto mt-6 max-w-md rounded-xl border border-gray-200 bg-gray-50 p-4">
-              <div className="mb-2 flex items-center justify-between text-sm text-gray-500">
-                <span>上传中...</span>
-                <span className="font-semibold text-primary">{progress}%</span>
-              </div>
-              <div className="h-2 overflow-hidden rounded-full bg-gray-100">
-                <div
-                  className="h-full rounded-full bg-primary transition-all duration-300"
-                  style={{ width: `${progress}%` }}
-                />
-              </div>
+            <p className="text-2xl font-medium text-[var(--sc-text-primary)] sm:text-[30px]">
+              {isDragging ? '释放文件以上传' : '点击或拖放文件上传'}
+            </p>
+            <p className="mt-3 text-sm text-[var(--sc-text-muted)]">支持 MP4/MOV/AVI/MKV，最大 500MB</p>
+
+            <div className="mt-8 flex justify-center">
+              <Button
+                size="sm"
+                variant="secondary"
+                className="rounded-full px-5"
+                disabled={isUploading}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  openFilePicker()
+                }}
+              >
+                上传视频文件
+              </Button>
             </div>
-          )}
+
+            {isUploading && (
+              <div className="mx-auto mt-6 max-w-md rounded-xl border border-[var(--sc-border-subtle)] bg-[var(--sc-bg-surface)] p-4">
+                <div className="mb-2 flex items-center justify-between text-sm text-[var(--sc-text-muted)]">
+                  <span>上传中...</span>
+                  <span className="font-semibold text-[var(--sc-accent)]">{progress}%</span>
+                </div>
+                <div className="h-2 overflow-hidden rounded-full bg-[var(--sc-bg-contrast)]">
+                  <div
+                    className="h-full rounded-full bg-[var(--sc-accent)] transition-all duration-300"
+                    style={{ width: `${progress}%` }}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>

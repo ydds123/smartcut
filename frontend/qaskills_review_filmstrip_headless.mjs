@@ -76,7 +76,7 @@ async function run() {
     }
 
     await reviewBtn.click()
-    await page.getByRole('heading', { name: '场景预览确认' }).waitFor({ timeout: 10000 })
+    await page.getByRole('heading', { name: '分镜预览' }).waitFor({ timeout: 10000 })
     await page.waitForTimeout(800)
 
     await setZoom(page, 20)

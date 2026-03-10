@@ -1,23 +1,9 @@
 import React from 'react'
+import type { TaskStatus } from '@/types/task'
+import { statusConfig } from '@/styles/design-tokens'
 
 export interface BadgeProps extends React.HTMLAttributes<HTMLDivElement> {
   variant?: 'default' | 'success' | 'warning' | 'danger' | 'info'
-}
-
-const statusMap: Record<
-  string,
-  { variant: 'success' | 'warning' | 'danger' | 'info' | 'default'; label: string }
-> = {
-  PENDING: { variant: 'default', label: '待处理' },
-  QUEUED: { variant: 'info', label: '队列中' },
-  PROCESSING: { variant: 'info', label: '处理中' },
-  COMPLETED: { variant: 'success', label: '已完成' },
-  FAILED: { variant: 'danger', label: '失败' },
-  DETECTING: { variant: 'info', label: '检测中' },
-  REVIEW_PENDING: { variant: 'warning', label: '待审核' },
-  REVIEW_APPROVED: { variant: 'info', label: '已确认' },
-  SPLITTING: { variant: 'info', label: '切分中' },
-  TIMELINE_READY: { variant: 'success', label: '切分完成' },
 }
 
 export function Badge({
@@ -27,7 +13,7 @@ export function Badge({
   ...props
 }: BadgeProps) {
   const variantStyles = {
-    default: 'bg-gray-100 text-gray-600',
+    default: 'border border-[var(--sc-border-subtle)] bg-[var(--sc-bg-surface)] text-[var(--sc-text-secondary)]',
     success: 'bg-success-bg text-success-text',
     warning: 'bg-warning-bg text-warning-text',
     danger: 'bg-danger-bg text-danger-text',
@@ -53,7 +39,19 @@ export interface StatusBadgeProps {
 }
 
 export function StatusBadge({ status, className = '' }: StatusBadgeProps) {
-  const config = statusMap[status] || { variant: 'default' as const, label: status }
+  const typedStatus = status as TaskStatus
+  const config = statusConfig[typedStatus]
 
-  return <Badge variant={config.variant} className={className}>{config.label}</Badge>
+  if (!config) {
+    return <Badge variant="default" className={className}>{status}</Badge>
+  }
+
+  return (
+    <div
+      className={`inline-flex items-center rounded px-2.5 py-0.5 text-xs font-medium ${className}`}
+      style={{ color: config.textColor, backgroundColor: config.bgColor }}
+    >
+      {config.label}
+    </div>
+  )
 }

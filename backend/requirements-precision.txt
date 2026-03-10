@@ -1,0 +1,6 @@
+-r requirements.txt
+
+# Precision mode extras (PySceneDetect + TransNetV2 fusion)
+numpy>=1.26
+opencv-python-headless>=4.10
+torch>=2.5

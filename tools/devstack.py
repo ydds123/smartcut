@@ -125,6 +125,20 @@ def http_ok(url: str, timeout: float = 2.0) -> bool:
         return False
 
 
+def http_get_json(url: str, timeout: float = 3.0) -> tuple[bool, Any]:
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "smartcut-devstack"})
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            raw = resp.read().decode("utf-8", errors="replace")
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        return False, str(exc)
+
+    try:
+        return True, json.loads(raw)
+    except json.JSONDecodeError as exc:
+        return False, f"invalid json: {exc}"
+
+
 def tcp_probe(host: str, port: int, timeout: float = 1.0) -> tuple[bool, str]:
     try:
         addr_infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
@@ -633,6 +647,9 @@ def command_doctor() -> int:
     npm_path = "npm.cmd" if is_windows() else "npm"
     npm_ok = shutil_which(npm_path) is not None
     checks.append(("npm", npm_ok, npm_path))
+    for binary in ("ffmpeg", "ffprobe", "scenedetect"):
+        binary_path = shutil_which(binary)
+        checks.append((binary, binary_path is not None, binary_path or "not found"))
 
     redis_v4_ok, redis_v4_detail = tcp_probe("127.0.0.1", 6379, timeout=0.6)
     redis_local_ok, redis_local_detail = tcp_probe("localhost", 6379, timeout=0.6)
@@ -662,14 +679,23 @@ def command_doctor() -> int:
     checks.append(("backend-health", http_ok("http://127.0.0.1:8000/health"), "/health"))
     checks.append(("frontend-home", http_ok("http://127.0.0.1:5173/"), "/"))
     checks.append(("frontend-proxy", http_ok("http://127.0.0.1:5173/api/tasks"), "/api/tasks"))
+    precision_optional = [
+        ("python:torch", python_module_available(python_exec, "torch"), "optional for precision mode"),
+        ("python:cv2", python_module_available(python_exec, "cv2"), "optional for precision mode"),
+    ]
 
-    width = max(len(name) for name, _, _ in checks) + 2
+    width = max(len(name) for name, _, _ in [*checks, *precision_optional]) + 2
     failures = 0
     for name, ok, info in checks:
         state = "OK " if ok else "FAIL"
         print(f"{name:<{width}} {state}  {info}")
         if not ok:
             failures += 1
+
+    print("\noptional checks (precision mode):")
+    for name, ok, info in precision_optional:
+        state = "OK  " if ok else "MISS"
+        print(f"{name:<{width}} {state}  {info}")
 
     return 0 if failures == 0 else 1
 
@@ -678,6 +704,19 @@ def shutil_which(cmd: str) -> Optional[str]:
     from shutil import which
 
     return which(cmd)
+
+
+def python_module_available(python_exec: str, module_name: str, timeout: float = 3.0) -> bool:
+    try:
+        result = subprocess.run(
+            [python_exec, "-c", f"import {module_name}"],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return result.returncode == 0
 
 
 def command_restart(service: Optional[str]) -> int:
@@ -725,6 +764,116 @@ def command_restart_all() -> int:
     return start_supervisor_background()
 
 
+def command_verify_new_code(restart_frontend: bool = False) -> int:
+    target_services = ["backend", "worker"]
+    if restart_frontend:
+        target_services.append("frontend")
+
+    previous_pids = {svc: resolve_service_pid(svc) for svc in target_services}
+    checks: List[tuple[str, bool, str]] = []
+
+    if not is_supervisor_running():
+        up_code = start_supervisor_background()
+        checks.append(
+            ("start-supervisor", up_code == 0, "started" if up_code == 0 else "failed")
+        )
+        if up_code != 0:
+            _print_check_report(checks)
+            return 1
+        time.sleep(1.0)
+    else:
+        checks.append(("start-supervisor", True, "already running"))
+
+    for svc in target_services:
+        code = command_restart(svc)
+        checks.append((f"restart-{svc}", code == 0, "ok" if code == 0 else "failed"))
+        if code != 0:
+            _print_check_report(checks)
+            return 1
+
+    time.sleep(1.0)
+
+    for svc in target_services:
+        pid = resolve_service_pid(svc)
+        alive = isinstance(pid, int) and is_pid_alive(pid)
+        checks.append((f"{svc}-alive", alive, str(pid) if isinstance(pid, int) else "-"))
+
+        old_pid = previous_pids.get(svc)
+        if isinstance(old_pid, int):
+            rotated = isinstance(pid, int) and pid != old_pid
+            checks.append(
+                (
+                    f"{svc}-pid-rotated",
+                    rotated,
+                    f"{old_pid} -> {pid if isinstance(pid, int) else '-'}",
+                )
+            )
+        else:
+            checks.append(
+                (
+                    f"{svc}-pid-rotated",
+                    isinstance(pid, int),
+                    f"new pid {pid}" if isinstance(pid, int) else "-",
+                )
+            )
+
+    backend_health_ok = http_ok("http://127.0.0.1:8000/health")
+    checks.append(("backend-health", backend_health_ok, "/health"))
+
+    worker_log_tail = tail_lines(service_log_path("worker"), 160)
+    worker_ready = "Listening on default" in worker_log_tail or "Worker rq:worker" in worker_log_tail
+    checks.append(("worker-log-ready", worker_ready, "listening marker found" if worker_ready else "marker missing"))
+
+    openapi_ok, openapi_data = http_get_json("http://127.0.0.1:8000/openapi.json")
+    if not openapi_ok:
+        checks.append(("openapi-json", False, str(openapi_data)))
+    else:
+        checks.append(("openapi-json", True, "loaded"))
+        task_props = (
+            openapi_data.get("components", {})
+            .get("schemas", {})
+            .get("TaskResponse", {})
+            .get("properties", {})
+            if isinstance(openapi_data, dict)
+            else {}
+        )
+        has_latest_split_stats = isinstance(task_props, dict) and "latest_split_stats" in task_props
+        checks.append(
+            (
+                "openapi-latest-split-stats",
+                has_latest_split_stats,
+                "TaskResponse.latest_split_stats",
+            )
+        )
+
+    tasks_ok, tasks_data = http_get_json("http://127.0.0.1:8000/api/tasks")
+    if not tasks_ok:
+        checks.append(("tasks-json", False, str(tasks_data)))
+    else:
+        checks.append(("tasks-json", True, "loaded"))
+        if isinstance(tasks_data, list) and tasks_data:
+            sample = tasks_data[: min(3, len(tasks_data))]
+            has_key = all(isinstance(item, dict) and "latest_split_stats" in item for item in sample)
+            checks.append(("tasks-latest-split-stats-key", has_key, f"sampled={len(sample)}"))
+        elif isinstance(tasks_data, list):
+            checks.append(("tasks-latest-split-stats-key", True, "no tasks"))
+        else:
+            checks.append(("tasks-latest-split-stats-key", False, "tasks response is not a list"))
+
+    _print_check_report(checks)
+    return 0 if all(ok for _, ok, _ in checks) else 1
+
+
+def _print_check_report(checks: List[tuple[str, bool, str]]) -> None:
+    if not checks:
+        return
+
+    width = max(len(name) for name, _, _ in checks) + 2
+    for name, ok, detail in checks:
+        state = "OK " if ok else "FAIL"
+        print(f"{name:<{width}} {state}  {detail}")
+
+
 def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="SmartCut devstack supervisor")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -738,6 +887,15 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     sub.add_parser("ps", help="show detailed service state")
     sub.add_parser("status", help="show stack status")
     sub.add_parser("doctor", help="run environment/health checks")
+    p_verify = sub.add_parser(
+        "verify-new-code",
+        help="restart backend/worker and verify new code is active",
+    )
+    p_verify.add_argument(
+        "--restart-frontend",
+        action="store_true",
+        help="also restart frontend before verification",
+    )
     sub.add_parser("__supervise", help=argparse.SUPPRESS)
 
     p_logs = sub.add_parser("logs", help="show logs")
@@ -767,6 +925,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         return command_status()
     if args.command == "doctor":
         return command_doctor()
+    if args.command == "verify-new-code":
+        return command_verify_new_code(restart_frontend=args.restart_frontend)
     if args.command == "logs":
         return command_logs(args.service, args.tail)
 

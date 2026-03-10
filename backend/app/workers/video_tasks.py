@@ -4,13 +4,18 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import shutil
 import time
-from datetime import datetime
+from collections import defaultdict, deque
+from pathlib import Path
 from typing import Any
 
 from rq import get_current_job
 
+from app.core.config import settings
 from app.core.database import SessionLocal
+from app.core.telemetry import increment_counter, log_event
 from app.models.models import Scene, Task
 from app.services.file_service import FileService
 from app.services.quality_tuning import (
@@ -22,6 +27,60 @@ from app.services.quality_tuning import (
 from app.services.video_processor import VideoProcessor
 
 logger = logging.getLogger(__name__)
+
+
+class StaleTaskExecution(RuntimeError):
+    """worker job 与当前任务活跃 job 不一致。"""
+
+
+def _query_task_for_active_job(db, task_id: str, job_id: str | None) -> Task | None:
+    query = db.query(Task).filter(Task.id == task_id)
+    if job_id:
+        query = query.filter(Task.active_job_id == job_id)
+    return query.first()
+
+
+def _require_active_task(db, task_id: str, job_id: str | None) -> Task:
+    if not job_id:
+        task = _query_task_for_active_job(db, task_id, None)
+        if not task:
+            raise StaleTaskExecution(f"stale worker write blocked: task_id={task_id} job_id={job_id}")
+        return task
+
+    # API 侧采用“先入队再 CAS 认领”，这里给一个短暂等待窗口，避免 worker 提前启动误判 stale。
+    deadline = time.monotonic() + 3.0
+    while True:
+        task = db.query(Task).filter(Task.id == task_id).first()
+        if not task:
+            raise StaleTaskExecution(f"stale worker write blocked: task_id={task_id} job_id={job_id}")
+        if task.active_job_id == job_id:
+            return task
+        if task.active_job_id and task.active_job_id != job_id:
+            raise StaleTaskExecution(f"stale worker write blocked: task_id={task_id} job_id={job_id}")
+        if time.monotonic() >= deadline:
+            raise StaleTaskExecution(f"stale worker write blocked: task_id={task_id} job_id={job_id}")
+        time.sleep(0.2)
+
+
+def _update_task_for_active_job(
+    db,
+    task_id: str,
+    job_id: str | None,
+    *,
+    allow_missing: bool = False,
+    **fields: Any,
+) -> bool:
+    query = db.query(Task).filter(Task.id == task_id)
+    if job_id:
+        query = query.filter(Task.active_job_id == job_id)
+    updated = query.update(fields, synchronize_session=False)
+    if updated == 1:
+        db.commit()
+        return True
+    db.rollback()
+    if allow_missing:
+        return False
+    raise StaleTaskExecution(f"stale worker write blocked: task_id={task_id} job_id={job_id}")
 
 
 def _to_json(value: Any) -> str:
@@ -37,6 +96,95 @@ def _from_json(value: str | None, default: Any) -> Any:
         return default
 
 
+def _has_nonempty_file(path: str | None) -> bool:
+    if not path:
+        return False
+    file_path = Path(path)
+    return file_path.exists() and file_path.is_file() and file_path.stat().st_size > 0
+
+
+def _build_incremental_plan(
+    scenes: list[tuple[int, int]],
+    existing_scene_rows: list[Scene],
+) -> tuple[dict[int, Scene], list[tuple[int, int, int]]]:
+    """
+    基于镜头边界构建增量计划：
+    - 可复用镜头：start/end 完全一致，且旧切片+缩略图都可用
+    - 需重切镜头：新增或边界变化，或旧文件缺失
+    """
+    old_by_boundary: dict[tuple[int, int], deque[Scene]] = defaultdict(deque)
+    for row in existing_scene_rows:
+        key = (int(row.start_ms), int(row.end_ms))
+        old_by_boundary[key].append(row)
+
+    reused: dict[int, Scene] = {}
+    to_render: list[tuple[int, int, int]] = []
+
+    for index, (start_ms, end_ms) in enumerate(scenes):
+        key = (int(start_ms), int(end_ms))
+        candidates = old_by_boundary.get(key)
+        matched = candidates.popleft() if candidates else None
+        if matched and _has_nonempty_file(matched.file_path) and _has_nonempty_file(matched.thumbnail_path):
+            reused[index] = matched
+        else:
+            to_render.append((index, int(start_ms), int(end_ms)))
+
+    return reused, to_render
+
+
+def _materialize_file(src_path: str, dst_path: Path) -> str:
+    """将源文件落到新任务目录，优先硬链接，失败回退复制。"""
+    dst_path.parent.mkdir(parents=True, exist_ok=True)
+    if dst_path.exists():
+        dst_path.unlink()
+
+    src = Path(src_path)
+    if not src.exists() or not src.is_file():
+        raise FileNotFoundError(f"source file missing: {src}")
+
+    try:
+        os.link(src, dst_path)
+        mode = "link"
+    except OSError:
+        shutil.copy2(src, dst_path)
+        mode = "copy"
+
+    if not dst_path.exists() or dst_path.stat().st_size <= 0:
+        raise RuntimeError(f"materialized file is empty: {dst_path}")
+    return mode
+
+
+def _run_full_review_split(
+    processor: VideoProcessor,
+    scenes: list[tuple[int, int]],
+    progress_callback,
+) -> tuple[list[str | None], list[str | None]]:
+    result = processor.split_video_from_scenes(scenes, progress_callback=progress_callback)
+    output_files = result["output_files"]
+    thumbnails = result["thumbnails"]
+    return output_files, thumbnails
+
+
+def _collect_successful_scene_results(
+    scenes: list[tuple[int, int]],
+    output_files: list[str | None],
+    thumbnails: list[str | None],
+) -> tuple[list[tuple[int, int, str, str | None]], int]:
+    """汇总成功切分结果（仅保留有输出视频的场景）。"""
+    successful: list[tuple[int, int, str, str | None]] = []
+    failed_split_count = 0
+
+    for index, (start_ms, end_ms) in enumerate(scenes):
+        video_path = output_files[index] if index < len(output_files) else None
+        thumbnail_path = thumbnails[index] if index < len(thumbnails) else None
+        if video_path:
+            successful.append((start_ms, end_ms, video_path, thumbnail_path))
+        else:
+            failed_split_count += 1
+
+    return successful, failed_split_count
+
+
 def process_video_task(
     task_id: str,
     video_path: str,
@@ -45,6 +193,7 @@ def process_video_task(
 ) -> dict:
     """RQ entrypoint: process one task with quality-first tuning."""
     job = get_current_job()
+    job_id = job.id if job else None
     db = SessionLocal()
 
     def update_progress(progress: int, status: str | None = None):
@@ -54,15 +203,23 @@ def process_video_task(
                 job.meta["status"] = status
             job.save_meta()
 
-        task = db.query(Task).filter(Task.id == task_id).first()
-        if task:
-            task.progress = progress
-            if status:
-                task.status = status
-            db.commit()
+        updates: dict[str, Any] = {"progress": max(0, min(100, int(progress)))}
+        if status:
+            updates["status"] = status
+        _update_task_for_active_job(db, task_id, job_id, **updates)
 
     try:
         logger.info("开始处理任务 %s", task_id)
+        log_event(
+            logger,
+            logging.INFO,
+            "worker_task_started",
+            task_id=task_id,
+            job_id=job_id,
+            event_type="process",
+            retry_attempt=int(getattr(job, "number_of_retries", 0) or 0) if job else 0,
+        )
+        _require_active_task(db, task_id, job_id)
         update_progress(0, "PROCESSING")
 
         active_config = dict(DEFAULT_QUALITY_CONFIG)
@@ -115,22 +272,25 @@ def process_video_task(
             active_config = next_config
 
         detect_elapsed_sec = round(time.perf_counter() - detect_started_at, 3)
-        scenes_count = len(final_scenes)
+        requested_scenes_count = len(final_scenes)
 
-        task = db.query(Task).filter(Task.id == task_id).first()
-        if task:
-            existing_history = _from_json(task.tuning_history, default=[])
-            if not isinstance(existing_history, list):
-                existing_history = []
-            task.total_scenes = scenes_count
-            task.resolved_config = _to_json(active_config)
-            detection_flags = dict(final_flags)
-            if final_detection_report:
-                detection_flags["detection_report"] = final_detection_report
-            task.quality_flags = _to_json(detection_flags)
-            task.suspect_segments = _to_json(final_suspects)
-            task.tuning_history = _to_json([*existing_history, *tuning_history])
-        db.commit()
+        task = _require_active_task(db, task_id, job_id)
+        existing_history = _from_json(task.tuning_history, default=[])
+        if not isinstance(existing_history, list):
+            existing_history = []
+        detection_flags = dict(final_flags)
+        if final_detection_report:
+            detection_flags["detection_report"] = final_detection_report
+        _update_task_for_active_job(
+            db,
+            task_id,
+            job_id,
+            total_scenes=requested_scenes_count,
+            resolved_config=_to_json(active_config),
+            quality_flags=_to_json(detection_flags),
+            suspect_segments=_to_json(final_suspects),
+            tuning_history=_to_json([*existing_history, *tuning_history]),
+        )
 
         def progress_callback(progress_percent: int):
             update_progress(progress_percent)
@@ -139,11 +299,6 @@ def process_video_task(
         split_started_at = time.perf_counter()
         output_files = processor.split_video(final_scenes, progress_callback=progress_callback)
         split_elapsed_sec = round(time.perf_counter() - split_started_at, 3)
-
-        if len(output_files) != len(final_scenes):
-            raise RuntimeError(
-                f"split outputs mismatch: expected={len(final_scenes)}, actual={len(output_files)}"
-            )
 
         update_progress(50)
         thumb_started_at = time.perf_counter()
@@ -154,20 +309,33 @@ def process_video_task(
         )
         thumbnail_elapsed_sec = round(time.perf_counter() - thumb_started_at, 3)
 
-        if len(thumbnails) != len(output_files):
-            raise RuntimeError(
-                f"thumbnail outputs mismatch: expected={len(output_files)}, actual={len(thumbnails)}"
+        successful_results, failed_split_count = _collect_successful_scene_results(final_scenes, output_files, thumbnails)
+        if not successful_results:
+            raise RuntimeError("all scene splits failed")
+
+        failed_thumbnail_count = sum(1 for _, _, _, thumb in successful_results if thumb is None)
+        if failed_split_count > 0:
+            logger.warning(
+                "任务 %s: 切分部分失败（成功=%s, 失败=%s, 总计=%s）",
+                task_id,
+                len(successful_results),
+                failed_split_count,
+                len(final_scenes),
+            )
+        if failed_thumbnail_count > 0:
+            logger.warning(
+                "任务 %s: %s/%s 个已成功切片的缩略图生成失败",
+                task_id,
+                failed_thumbnail_count,
+                len(successful_results),
             )
 
-        failed_count = sum(1 for thumb in thumbnails if thumb is None)
-        if failed_count > 0:
-            logger.warning("任务 %s: %s/%s 个镜头缩略图生成失败", task_id, failed_count, len(output_files))
-
         db_started_at = time.perf_counter()
+        _require_active_task(db, task_id, job_id)
         db.query(Scene).filter(Scene.task_id == task_id).delete()
 
         scene_rows: list[Scene] = []
-        for index, (start_ms, end_ms) in enumerate(final_scenes):
+        for index, (start_ms, end_ms, file_path, thumbnail_path) in enumerate(successful_results):
             scene_rows.append(
                 Scene(
                     id=f"{task_id}_scene_{index}",
@@ -175,33 +343,42 @@ def process_video_task(
                     sequence_index=index,
                     start_ms=start_ms,
                     end_ms=end_ms,
-                    file_path=output_files[index] if index < len(output_files) else None,
-                    thumbnail_path=thumbnails[index] if index < len(thumbnails) else None,
+                    file_path=file_path,
+                    thumbnail_path=thumbnail_path,
                 )
             )
         if scene_rows:
             db.bulk_save_objects(scene_rows)
 
+        scenes_count = len(successful_results)
         metrics = {
             "detect_and_quality_sec": detect_elapsed_sec,
             "split_sec": split_elapsed_sec,
             "thumbnail_sec": thumbnail_elapsed_sec,
+            "requested_scenes": requested_scenes_count,
+            "successful_scenes": scenes_count,
+            "failed_split_scenes": failed_split_count,
+            "failed_thumbnail_scenes": failed_thumbnail_count,
             "db_persist_sec": round(time.perf_counter() - db_started_at, 3),
             "total_sec": round(time.perf_counter() - total_started_at, 3),
         }
 
-        task = db.query(Task).filter(Task.id == task_id).first()
-        if task:
-            task.status = "COMPLETED"
-            task.progress = 100
-            task.total_scenes = scenes_count
-            # 将指标附加到 quality_flags，便于前端一次读取。
-            merged_flags = dict(final_flags)
-            if final_detection_report:
-                merged_flags["detection_report"] = final_detection_report
-            merged_flags["metrics"] = metrics
-            task.quality_flags = _to_json(merged_flags)
-        db.commit()
+        # 将指标附加到 quality_flags，便于前端一次读取。
+        merged_flags = dict(final_flags)
+        if final_detection_report:
+            merged_flags["detection_report"] = final_detection_report
+        merged_flags["metrics"] = metrics
+        _update_task_for_active_job(
+            db,
+            task_id,
+            job_id,
+            status="COMPLETED",
+            progress=100,
+            total_scenes=scenes_count,
+            quality_flags=_to_json(merged_flags),
+            active_operation=None,
+            active_job_id=None,
+        )
 
         logger.info("任务 %s 处理完成，共 %s 个镜头", task_id, scenes_count)
         return {
@@ -215,20 +392,50 @@ def process_video_task(
             "metrics": metrics,
         }
 
+    except StaleTaskExecution as exc:
+        logger.info("任务 %s 忽略陈旧 worker 写入: %s", task_id, exc)
+        increment_counter("stale_worker_write_blocked_total")
+        log_event(
+            logger,
+            logging.WARNING,
+            "worker_stale_write_blocked",
+            task_id=task_id,
+            job_id=job_id,
+            event_type="process",
+            error=str(exc),
+        )
+        return {"success": False, "stale": True, "error": str(exc)}
     except Exception as exc:
         logger.exception("任务 %s 处理异常", task_id)
-
-        task = db.query(Task).filter(Task.id == task_id).first()
-        if task:
-            task.status = "FAILED"
-            task.progress = 0
-            task.review_notes = str(exc)
-        db.commit()
-
-        return {
-            "success": False,
-            "error": str(exc),
-        }
+        retries_left = int(getattr(job, "retries_left", 0) or 0) if job is not None else 0
+        if job is not None and retries_left > 0:
+            logger.warning("任务 %s 将由 RQ 重试，remaining=%s", task_id, retries_left)
+            log_event(
+                logger,
+                logging.WARNING,
+                "worker_task_retry_scheduled",
+                task_id=task_id,
+                job_id=job_id,
+                event_type="process",
+                retry_attempt=int(getattr(job, "number_of_retries", 0) or 0),
+                retries_left=retries_left,
+                error=str(exc),
+            )
+            raise
+        _update_task_for_active_job(
+            db,
+            task_id,
+            job_id,
+            allow_missing=True,
+            status="FAILED",
+            progress=0,
+            review_notes=str(exc),
+            active_operation=None,
+            active_job_id=None,
+        )
+        if job is not None:
+            raise
+        return {"success": False, "error": str(exc)}
 
     finally:
         db.close()
@@ -241,6 +448,7 @@ def detect_scenes_for_review(
 ) -> dict:
     """RQ entrypoint: 仅检测场景，结果存入 detection_result，状态设为 REVIEW_PENDING。"""
     job = get_current_job()
+    job_id = job.id if job else None
     db = SessionLocal()
 
     def update_progress(progress: int, status: str | None = None):
@@ -249,15 +457,23 @@ def detect_scenes_for_review(
             if status:
                 job.meta["status"] = status
             job.save_meta()
-        task = db.query(Task).filter(Task.id == task_id).first()
-        if task:
-            task.progress = progress
-            if status:
-                task.status = status
-            db.commit()
+        updates: dict[str, Any] = {"progress": max(0, min(100, int(progress)))}
+        if status:
+            updates["status"] = status
+        _update_task_for_active_job(db, task_id, job_id, **updates)
 
     try:
         logger.info("开始场景检测（预览模式）任务 %s", task_id)
+        log_event(
+            logger,
+            logging.INFO,
+            "worker_task_started",
+            task_id=task_id,
+            job_id=job_id,
+            event_type="review",
+            retry_attempt=int(getattr(job, "number_of_retries", 0) or 0) if job else 0,
+        )
+        _require_active_task(db, task_id, job_id)
         update_progress(0, "DETECTING")
 
         active_config = dict(DEFAULT_QUALITY_CONFIG)
@@ -265,7 +481,9 @@ def detect_scenes_for_review(
             active_config.update(resolved_config)
 
         processor = VideoProcessor(task_id, video_path, processing_config=active_config)
-        result = processor.detect_scenes_only()
+        result = processor.detect_scenes_only(
+            progress_callback=lambda progress: update_progress(progress, "DETECTING")
+        )
 
         scenes = result["scenes"]
         duration_ms = result["duration_ms"]
@@ -277,86 +495,288 @@ def detect_scenes_for_review(
             "report": report,
         }
 
-        task = db.query(Task).filter(Task.id == task_id).first()
-        if task:
-            task.detection_result = _to_json(detection_data)
-            task.total_scenes = len(scenes)
-            task.status = "REVIEW_PENDING"
-            task.progress = 100
-        db.commit()
+        _update_task_for_active_job(
+            db,
+            task_id,
+            job_id,
+            detection_result=_to_json(detection_data),
+            # 重新检测成功后，以最新检测结果覆盖编辑草稿，避免沿用旧切分边界。
+            user_edited_scenes=_to_json(detection_data["scenes"]),
+            total_scenes=len(scenes),
+            status="REVIEW_PENDING",
+            progress=100,
+            active_operation=None,
+            active_job_id=None,
+        )
 
         logger.info("任务 %s 场景检测完成，共 %s 个场景，等待用户确认", task_id, len(scenes))
         return {"success": True, "scenes_count": len(scenes)}
 
+    except StaleTaskExecution as exc:
+        logger.info("任务 %s 忽略陈旧 review worker 写入: %s", task_id, exc)
+        increment_counter("stale_worker_write_blocked_total")
+        log_event(
+            logger,
+            logging.WARNING,
+            "worker_stale_write_blocked",
+            task_id=task_id,
+            job_id=job_id,
+            event_type="review",
+            error=str(exc),
+        )
+        return {"success": False, "stale": True, "error": str(exc)}
     except Exception as exc:
         logger.exception("任务 %s 场景检测异常", task_id)
-        task = db.query(Task).filter(Task.id == task_id).first()
-        if task:
-            task.status = "FAILED"
-            task.progress = 0
-            task.review_notes = str(exc)
-        db.commit()
+        retries_left = int(getattr(job, "retries_left", 0) or 0) if job is not None else 0
+        if job is not None and retries_left > 0:
+            logger.warning("任务 %s（review）将由 RQ 重试，remaining=%s", task_id, retries_left)
+            log_event(
+                logger,
+                logging.WARNING,
+                "worker_task_retry_scheduled",
+                task_id=task_id,
+                job_id=job_id,
+                event_type="review",
+                retry_attempt=int(getattr(job, "number_of_retries", 0) or 0),
+                retries_left=retries_left,
+                error=str(exc),
+            )
+            raise
+        _update_task_for_active_job(
+            db,
+            task_id,
+            job_id,
+            allow_missing=True,
+            status="FAILED",
+            progress=0,
+            review_notes=str(exc),
+            active_operation=None,
+            active_job_id=None,
+        )
+        if job is not None:
+            raise
         return {"success": False, "error": str(exc)}
 
     finally:
         db.close()
 
 
-def split_video_after_review(task_id: str) -> dict:
+def split_video_after_review(task_id: str, resolved_config_override: dict[str, Any] | None = None) -> dict:
     """RQ entrypoint: 读取用户编辑后的场景列表，执行切分 + 缩略图，状态设为 TIMELINE_READY。"""
     job = get_current_job()
+    job_id = job.id if job else None
     db = SessionLocal()
+    task_ref: Task | None = None
+    last_db_commit_monotonic = 0.0
+    last_db_progress = -1
+    progress_db_min_interval_sec = 0.5
+    progress_db_min_step = 2
 
-    def update_progress(progress: int, status: str | None = None):
+    def update_progress(progress: int, status: str | None = None, force: bool = False):
+        nonlocal last_db_commit_monotonic, last_db_progress
+        clamped_progress = max(0, min(100, int(progress)))
+
         if job:
-            job.meta["progress"] = progress
+            job.meta["progress"] = clamped_progress
             if status:
                 job.meta["status"] = status
             job.save_meta()
-        task = db.query(Task).filter(Task.id == task_id).first()
-        if task:
-            task.progress = progress
+
+        now = time.monotonic()
+        should_commit = bool(force or status)
+        if not should_commit:
+            progress_delta = clamped_progress - last_db_progress
+            time_delta = now - last_db_commit_monotonic
+            should_commit = (
+                progress_delta >= progress_db_min_step
+                or time_delta >= progress_db_min_interval_sec
+            )
+
+        if should_commit:
+            update_fields: dict[str, Any] = {"progress": clamped_progress}
             if status:
-                task.status = status
-            db.commit()
+                update_fields["status"] = status
+            _update_task_for_active_job(db, task_id, job_id, **update_fields)
+            last_db_progress = clamped_progress
+            last_db_commit_monotonic = now
 
     try:
-        task = db.query(Task).filter(Task.id == task_id).first()
-        if not task:
-            return {"success": False, "error": "Task not found"}
+        total_started_at = time.perf_counter()
+        log_event(
+            logger,
+            logging.INFO,
+            "worker_task_started",
+            task_id=task_id,
+            job_id=job_id,
+            event_type="split",
+            retry_attempt=int(getattr(job, "number_of_retries", 0) or 0) if job else 0,
+        )
+        task_ref = _require_active_task(db, task_id, job_id)
 
         # 优先使用用户编辑后的场景，回退到检测结果
-        raw = _from_json(task.user_edited_scenes, default=None) or \
-              _from_json(task.detection_result, default={}).get("scenes", [])
+        raw = _from_json(task_ref.user_edited_scenes, default=None) or \
+              _from_json(task_ref.detection_result, default={}).get("scenes", [])
 
         scenes: list[tuple[int, int]] = [(s["start_ms"], s["end_ms"]) for s in raw]
         if not scenes:
             raise ValueError("No scenes available for splitting")
 
-        video_path = task.file_path
-        active_config = _from_json(task.resolved_config, default={})
+        video_path = task_ref.file_path
+        active_config = _from_json(task_ref.resolved_config, default={})
+        if not isinstance(active_config, dict):
+            active_config = {}
+        if resolved_config_override:
+            # 单次临时参数：仅用于本轮切分，不回写为全局配置。
+            active_config = dict(resolved_config_override)
+        elif not active_config:
+            active_config = dict(DEFAULT_QUALITY_CONFIG)
 
         logger.info("开始切分任务 %s，共 %s 个场景", task_id, len(scenes))
-        update_progress(0, "SPLITTING")
+        update_progress(0, "SPLITTING", force=True)
+
+        existing_scene_rows = (
+            db.query(Scene)
+            .filter(Scene.task_id == task_id)
+            .order_by(Scene.sequence_index.asc())
+            .all()
+        )
 
         processor = VideoProcessor(task_id, video_path, processing_config=active_config)
+        plan_elapsed_ms = 0.0
+        reuse_materialize_elapsed_ms = 0.0
+        render_elapsed_ms = 0.0
+        db_elapsed_ms = 0.0
+        cleanup_elapsed_ms = 0.0
+
+        incremental_enabled = bool(getattr(settings, "ENABLE_INCREMENTAL_SPLIT", True))
+        fallback_full_resplit = False
+        reused_count = 0
+        rendered_count = len(scenes)
+        link_success_count = 0
+        copy_fallback_count = 0
+        output_files: list[str | None] = []
+        thumbnails: list[str | None] = []
 
         def progress_callback(p: int):
             update_progress(p)
 
-        result = processor.split_video_from_scenes(scenes, progress_callback=progress_callback)
-        output_files = result["output_files"]
-        thumbnails = result["thumbnails"]
-
-        if len(output_files) != len(scenes):
-            raise RuntimeError(
-                f"split outputs mismatch: expected={len(scenes)}, actual={len(output_files)}"
+        if incremental_enabled and existing_scene_rows:
+            plan_started_at = time.perf_counter()
+            reused_map, to_render = _build_incremental_plan(scenes, existing_scene_rows)
+            plan_elapsed_ms = round((time.perf_counter() - plan_started_at) * 1000, 2)
+            reused_count = len(reused_map)
+            rendered_count = len(to_render)
+            logger.info(
+                "任务 %s 增量切分规划：total=%s reused=%s rendered=%s",
+                task_id,
+                len(scenes),
+                reused_count,
+                rendered_count,
             )
-        if len(thumbnails) != len(output_files):
-            raise RuntimeError(
-                f"thumbnail outputs mismatch: expected={len(output_files)}, actual={len(thumbnails)}"
+
+            if reused_count > 0 and rendered_count < len(scenes):
+                try:
+                    output_files = [None for _ in scenes]
+                    thumbnails = [None for _ in scenes]
+
+                    materialize_started_at = time.perf_counter()
+                    for index, existing_scene in reused_map.items():
+                        dst_video = processor.scenes_dir / f"scene_{index:03d}.mp4"
+                        dst_thumb = processor.scenes_dir / f"scene_{index:03d}_thumb.jpg"
+                        video_mode = _materialize_file(existing_scene.file_path, dst_video)
+                        thumb_mode = _materialize_file(existing_scene.thumbnail_path, dst_thumb)
+                        if video_mode == "link":
+                            link_success_count += 1
+                        else:
+                            copy_fallback_count += 1
+                        if thumb_mode == "link":
+                            link_success_count += 1
+                        else:
+                            copy_fallback_count += 1
+                        output_files[index] = str(dst_video)
+                        thumbnails[index] = str(dst_thumb)
+                    reuse_materialize_elapsed_ms = round((time.perf_counter() - materialize_started_at) * 1000, 2)
+
+                    if to_render:
+                        render_indices = [index for index, _, _ in to_render]
+                        render_scenes = [(start_ms, end_ms) for _, start_ms, end_ms in to_render]
+
+                        progress_base = int((reused_count / max(1, len(scenes))) * 50)
+                        update_progress(progress_base)
+
+                        def incremental_progress_callback(raw_progress: int):
+                            mapped = progress_base + int((max(0, min(raw_progress, 100)) / 100) * (90 - progress_base))
+                            update_progress(mapped)
+
+                        render_started_at = time.perf_counter()
+                        partial_result = processor.split_video_from_scenes(
+                            render_scenes,
+                            progress_callback=incremental_progress_callback,
+                            output_indices=render_indices,
+                        )
+                        render_elapsed_ms = round((time.perf_counter() - render_started_at) * 1000, 2)
+                        partial_outputs = partial_result["output_files"]
+                        partial_thumbs = partial_result["thumbnails"]
+
+                        for pos, target_index in enumerate(render_indices):
+                            output_files[target_index] = partial_outputs[pos]
+                            thumbnails[target_index] = partial_thumbs[pos]
+                    else:
+                        update_progress(90)
+                except Exception as incremental_exc:
+                    fallback_full_resplit = True
+                    reused_count = 0
+                    rendered_count = len(scenes)
+                    logger.warning(
+                        "任务 %s 增量切分失败，回退全量切分: %s",
+                        task_id,
+                        incremental_exc,
+                    )
+                    processor = VideoProcessor(task_id, video_path, processing_config=active_config)
+                    render_started_at = time.perf_counter()
+                    output_files, thumbnails = _run_full_review_split(
+                        processor,
+                        scenes,
+                        progress_callback=progress_callback,
+                    )
+                    render_elapsed_ms = round((time.perf_counter() - render_started_at) * 1000, 2)
+            else:
+                # 无可复用镜头时直接全量切分，避免增量路径无收益。
+                reused_count = 0
+                rendered_count = len(scenes)
+                render_started_at = time.perf_counter()
+                output_files, thumbnails = _run_full_review_split(
+                    processor,
+                    scenes,
+                    progress_callback=progress_callback,
+                )
+                render_elapsed_ms = round((time.perf_counter() - render_started_at) * 1000, 2)
+        else:
+            render_started_at = time.perf_counter()
+            output_files, thumbnails = _run_full_review_split(
+                processor,
+                scenes,
+                progress_callback=progress_callback,
+            )
+            render_elapsed_ms = round((time.perf_counter() - render_started_at) * 1000, 2)
+
+        successful_results, failed_split_count = _collect_successful_scene_results(scenes, output_files, thumbnails)
+        if not successful_results:
+            raise RuntimeError("all review scenes failed to split")
+        failed_thumbnail_count = sum(1 for _, _, _, thumb in successful_results if thumb is None)
+        successful_count = len(successful_results)
+
+        if failed_split_count > 0:
+            logger.warning(
+                "任务 %s 切分部分失败（成功=%s, 失败=%s, 总计=%s）",
+                task_id,
+                successful_count,
+                failed_split_count,
+                len(scenes),
             )
 
+        db_started_at = time.perf_counter()
+        _require_active_task(db, task_id, job_id)
         db.query(Scene).filter(Scene.task_id == task_id).delete()
         scene_rows = [
             Scene(
@@ -365,38 +785,114 @@ def split_video_after_review(task_id: str) -> dict:
                 sequence_index=i,
                 start_ms=start_ms,
                 end_ms=end_ms,
-                file_path=output_files[i] if i < len(output_files) else None,
-                thumbnail_path=thumbnails[i] if i < len(thumbnails) else None,
+                file_path=file_path,
+                thumbnail_path=thumbnail_path,
             )
-            for i, (start_ms, end_ms) in enumerate(scenes)
+            for i, (start_ms, end_ms, file_path, thumbnail_path) in enumerate(successful_results)
         ]
         if scene_rows:
             db.bulk_save_objects(scene_rows)
-
-        task = db.query(Task).filter(Task.id == task_id).first()
-        if task:
-            task.status = "TIMELINE_READY"
-            task.progress = 100
-            task.total_scenes = len(scenes)
         db.commit()
+        db_elapsed_ms = round((time.perf_counter() - db_started_at) * 1000, 2)
+        last_db_commit_monotonic = time.monotonic()
+        last_db_progress = 100
 
         # 保留本轮最新切分目录，清理同任务历史切分目录，避免旧切片残留。
+        cleanup_started_at = time.perf_counter()
         try:
             FileService.delete_split_assets(task_id, keep_task_dir_path=str(processor.task_dir))
         except Exception as cleanup_exc:
             logger.warning("任务 %s 清理历史切片目录失败: %s", task_id, cleanup_exc)
+        cleanup_elapsed_ms = round((time.perf_counter() - cleanup_started_at) * 1000, 2)
 
-        logger.info("任务 %s 切分完成，状态 TIMELINE_READY", task_id)
-        return {"success": True, "scenes_count": len(scenes)}
+        reused_ratio = round(reused_count / max(1, len(scenes)), 4)
+        split_stats = {
+            "total_scenes": successful_count,
+            "requested_scenes": len(scenes),
+            "reused_count": reused_count,
+            "rendered_count": rendered_count,
+            "reused_ratio": reused_ratio,
+            "failed_split_count": failed_split_count,
+            "failed_thumbnail_count": failed_thumbnail_count,
+            "incremental_enabled": incremental_enabled,
+            "fallback_full_resplit": fallback_full_resplit,
+            "link_success_count": link_success_count,
+            "copy_fallback_count": copy_fallback_count,
+            "plan_elapsed_ms": plan_elapsed_ms,
+            "reuse_materialize_elapsed_ms": reuse_materialize_elapsed_ms,
+            "render_elapsed_ms": render_elapsed_ms,
+            "db_elapsed_ms": db_elapsed_ms,
+            "cleanup_elapsed_ms": cleanup_elapsed_ms,
+            "total_elapsed_ms": round((time.perf_counter() - total_started_at) * 1000, 2),
+        }
 
+        _update_task_for_active_job(
+            db,
+            task_id,
+            job_id,
+            status="TIMELINE_READY",
+            progress=100,
+            total_scenes=successful_count,
+            # 以本轮实际切分结果回写审核草稿，确保返回编辑与工作台镜头数一致。
+            user_edited_scenes=_to_json(
+                [{"start_ms": start_ms, "end_ms": end_ms} for start_ms, end_ms, _, _ in successful_results]
+            ),
+            split_stats=_to_json(split_stats),
+            active_operation=None,
+            active_job_id=None,
+        )
+
+        logger.info(
+            "任务 %s 切分完成，状态 TIMELINE_READY，stats=%s",
+            task_id,
+            _to_json(split_stats),
+        )
+        return {"success": True, "scenes_count": successful_count, "split_stats": split_stats}
+
+    except StaleTaskExecution as exc:
+        logger.info("任务 %s 忽略陈旧 split worker 写入: %s", task_id, exc)
+        increment_counter("stale_worker_write_blocked_total")
+        log_event(
+            logger,
+            logging.WARNING,
+            "worker_stale_write_blocked",
+            task_id=task_id,
+            job_id=job_id,
+            event_type="split",
+            error=str(exc),
+        )
+        return {"success": False, "stale": True, "error": str(exc)}
     except Exception as exc:
         logger.exception("任务 %s 切分异常", task_id)
-        task = db.query(Task).filter(Task.id == task_id).first()
-        if task:
-            task.status = "FAILED"
-            task.progress = 0
-            task.review_notes = str(exc)
-        db.commit()
+        retries_left = int(getattr(job, "retries_left", 0) or 0) if job is not None else 0
+        if job is not None and retries_left > 0:
+            logger.warning("任务 %s（split）将由 RQ 重试，remaining=%s", task_id, retries_left)
+            log_event(
+                logger,
+                logging.WARNING,
+                "worker_task_retry_scheduled",
+                task_id=task_id,
+                job_id=job_id,
+                event_type="split",
+                retry_attempt=int(getattr(job, "number_of_retries", 0) or 0),
+                retries_left=retries_left,
+                error=str(exc),
+            )
+            raise
+        _update_task_for_active_job(
+            db,
+            task_id,
+            job_id,
+            allow_missing=True,
+            status="FAILED",
+            progress=0,
+            review_notes=str(exc),
+            split_stats=None,
+            active_operation=None,
+            active_job_id=None,
+        )
+        if job is not None:
+            raise
         return {"success": False, "error": str(exc)}
 
     finally:

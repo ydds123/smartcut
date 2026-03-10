@@ -21,16 +21,16 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     ref
   ) => {
     const baseStyles =
-      'inline-flex items-center justify-center rounded-md font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50'
+      'inline-flex items-center justify-center rounded-md font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--sc-focus-ring)] focus-visible:ring-offset-0 disabled:pointer-events-none disabled:opacity-50'
 
     const variantStyles = {
       primary:
-        'bg-primary text-white hover:bg-primary-hover focus-visible:ring-primary',
+        'border border-transparent bg-[var(--sc-accent)] text-white hover:bg-[var(--sc-accent-hover)]',
       secondary:
-        'bg-[#27272a] text-[#d4d4d8] hover:bg-[#3f3f46] focus-visible:ring-gray-300',
+        'border border-[var(--sc-border-subtle)] bg-[var(--sc-bg-surface)] text-[var(--sc-text-primary)] hover:bg-[var(--sc-bg-elevated)]',
       danger:
-        'bg-danger text-white hover:bg-[#D93025] focus-visible:ring-danger',
-      ghost: 'hover:bg-[#27272a] text-[#d4d4d8]',
+        'border border-[var(--sc-danger-border)] bg-[var(--sc-danger-bg)] text-[var(--sc-danger-text)] hover:bg-[var(--sc-danger-bg-hover)]',
+      ghost: 'text-[var(--sc-text-secondary)] hover:bg-[var(--sc-bg-elevated)] hover:text-[var(--sc-text-primary)]',
     }
 
     const sizeStyles = {

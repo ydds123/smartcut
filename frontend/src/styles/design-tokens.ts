@@ -14,68 +14,68 @@ export const colors = {
     main: '#3370FF',
     hover: '#295AC8',
     active: '#2246A0',
-    light: '#E8F3FF',
-    text: '#1D4ED8',
+    light: 'rgba(51, 112, 255, 0.22)',
+    text: '#B8CAFF',
   },
 
   // 状态颜色 (Status)
   success: {
-    main: '#00B42A',
-    bg: '#E6FFEB',
-    text: '#0F766E',
-    dot: '#00B42A',
+    main: '#69B184',
+    bg: 'rgba(108, 170, 132, 0.16)',
+    text: '#A4CFB5',
+    dot: '#69B184',
   },
   warning: {
-    main: '#FF7D00',
-    bg: '#FFF7E8',
-    text: '#9A5700',
-    dot: '#FF7D00',
+    main: '#C9984D',
+    bg: 'rgba(199, 148, 70, 0.18)',
+    text: '#D8B473',
+    dot: '#C9984D',
   },
   danger: {
-    main: '#F53F3F',
-    bg: '#FFECE8',
-    text: '#B91C1C',
-    dot: '#F53F3F',
+    main: '#D86A74',
+    bg: 'rgba(216, 106, 116, 0.18)',
+    text: '#F3BDC4',
+    dot: '#D86A74',
   },
   info: {
-    main: '#91B4FF',
-    bg: '#E8F3FF',
-    text: '#1D4ED8',
-    dot: '#91B4FF',
+    main: '#3370FF',
+    bg: 'rgba(51, 112, 255, 0.18)',
+    text: '#B8CAFF',
+    dot: '#3370FF',
   },
 
   // 中性颜色 (Neutral)
   gray: {
-    50: '#F7F8FA',
-    100: '#F2F3F5',
-    200: '#E5E6EB',
-    300: '#C9CDD4',
-    400: '#86909C',
-    500: '#4E5969',
-    600: '#1D2129',
+    50: '#2A2B2D',
+    100: '#303236',
+    200: '#3A3C40',
+    300: '#4A4D52',
+    400: '#7F8791',
+    500: '#AEB5BE',
+    600: '#E8EDF2',
   },
 
   // 文字颜色 (Text)
   text: {
-    primary: '#1D2129',    // 主文字
-    secondary: '#4E5969',  // 次要文字
-    tertiary: '#86909C',   // 辅助文字
-    placeholder: '#C9CDD4', // 占位符
+    primary: '#E8EDF2', // 主文字
+    secondary: '#AEB5BE', // 次要文字
+    tertiary: '#7F8791', // 辅助文字
+    placeholder: '#4A4D52', // 占位符
   },
 
   // 背景色 (Background)
   bg: {
-    primary: '#FFFFFF',
-    secondary: '#F7F8FA',
-    hover: '#F2F3F5',
-    selected: '#E8F3FF',
-    disabled: '#F2F3F5',
+    primary: '#1B1B1C',
+    secondary: '#232324',
+    hover: '#303236',
+    selected: 'rgba(51, 112, 255, 0.22)',
+    disabled: '#2A2B2D',
   },
 
   // 边框 (Border)
   border: {
-    default: '#E5E6EB',
-    light: '#F2F3F5',
+    default: '#3A3C40',
+    light: '#4A4D52',
     focus: '#3370FF',
   },
 }
@@ -164,63 +164,81 @@ export const transition = {
 export const statusConfig = {
   PENDING: {
     label: '等待中',
-    dotColor: colors.gray[300],
-    textColor: colors.text.secondary,
-    bgColor: colors.gray[100],
+    dotColor: 'var(--sc-status-neutral-dot)',
+    textColor: 'var(--sc-status-neutral-text)',
+    bgColor: 'var(--sc-status-neutral-bg)',
   },
   QUEUED: {
     label: '排队中',
-    dotColor: colors.info.dot,
-    textColor: colors.info.text,
-    bgColor: colors.info.bg,
+    dotColor: 'var(--sc-status-info-dot)',
+    textColor: 'var(--sc-status-info-text)',
+    bgColor: 'var(--sc-status-info-bg)',
   },
   PROCESSING: {
     label: '处理中',
-    dotColor: colors.primary.main,
-    textColor: colors.primary.text,
-    bgColor: colors.primary.light,
+    dotColor: 'var(--sc-status-info-dot)',
+    textColor: 'var(--sc-status-info-text)',
+    bgColor: 'var(--sc-status-info-bg)',
   },
   COMPLETED: {
     label: '已完成',
-    dotColor: colors.success.dot,
-    textColor: colors.success.text,
-    bgColor: colors.success.bg,
+    dotColor: 'var(--sc-status-success-dot)',
+    textColor: 'var(--sc-status-success-text)',
+    bgColor: 'var(--sc-status-success-bg)',
   },
   FAILED: {
     label: '失败',
-    dotColor: colors.danger.dot,
-    textColor: colors.danger.text,
-    bgColor: colors.danger.bg,
+    dotColor: 'var(--sc-status-danger-dot)',
+    textColor: 'var(--sc-status-danger-text)',
+    bgColor: 'var(--sc-status-danger-bg)',
+  },
+  ANALYZE_QUEUED: {
+    label: 'AI排队中',
+    dotColor: 'var(--sc-status-info-dot)',
+    textColor: 'var(--sc-status-info-text)',
+    bgColor: 'var(--sc-status-info-bg)',
+  },
+  ANALYZING: {
+    label: 'AI分析中',
+    dotColor: 'var(--sc-status-info-dot)',
+    textColor: 'var(--sc-status-info-text)',
+    bgColor: 'var(--sc-status-info-bg)',
+  },
+  ANALYZE_FAILED: {
+    label: 'AI分析失败',
+    dotColor: 'var(--sc-status-danger-dot)',
+    textColor: 'var(--sc-status-danger-text)',
+    bgColor: 'var(--sc-status-danger-bg)',
   },
   DETECTING: {
     label: '检测中',
-    dotColor: colors.info.dot,
-    textColor: colors.info.text,
-    bgColor: colors.info.bg,
+    dotColor: 'var(--sc-status-info-dot)',
+    textColor: 'var(--sc-status-info-text)',
+    bgColor: 'var(--sc-status-info-bg)',
   },
   REVIEW_PENDING: {
     label: '待审核',
-    dotColor: colors.warning.dot,
-    textColor: colors.warning.text,
-    bgColor: colors.warning.bg,
+    dotColor: 'var(--sc-status-warning-dot)',
+    textColor: 'var(--sc-status-warning-text)',
+    bgColor: 'var(--sc-status-warning-bg)',
   },
   REVIEW_APPROVED: {
     label: '已确认',
-    dotColor: colors.info.dot,
-    textColor: colors.info.text,
-    bgColor: colors.info.bg,
+    dotColor: 'var(--sc-status-approved-dot)',
+    textColor: 'var(--sc-status-approved-text)',
+    bgColor: 'var(--sc-status-approved-bg)',
   },
   SPLITTING: {
     label: '切分中',
-    dotColor: colors.primary.main,
-    textColor: colors.primary.text,
-    bgColor: colors.primary.light,
+    dotColor: 'var(--sc-status-info-dot)',
+    textColor: 'var(--sc-status-info-text)',
+    bgColor: 'var(--sc-status-info-bg)',
   },
   TIMELINE_READY: {
     label: '切分完成',
-    dotColor: colors.success.dot,
-    textColor: colors.success.text,
-    bgColor: colors.success.bg,
+    dotColor: 'var(--sc-status-success-dot)',
+    textColor: 'var(--sc-status-success-text)',
+    bgColor: 'var(--sc-status-success-bg)',
   },
 } as const
 
@@ -267,4 +285,18 @@ export const tailwindColors = {
   'border-default': colors.border.default,
   'border-light': colors.border.light,
   'border-focus': colors.border.focus,
+
+  // 状态（统一来源，供 Tailwind 语义类复用）
+  'success-bg': colors.success.bg,
+  'warning-bg': colors.warning.bg,
+  'danger-bg': colors.danger.bg,
+  'info-bg': colors.info.bg,
+  'success-text': colors.success.text,
+  'warning-text': colors.warning.text,
+  'danger-text': colors.danger.text,
+  'info-text': colors.info.text,
+  'success-border': colors.success.dot,
+  'warning-border': colors.warning.dot,
+  'danger-border': colors.danger.dot,
+  'info-border': colors.info.dot,
 }
