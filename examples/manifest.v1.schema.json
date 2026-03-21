@@ -1,0 +1,524 @@
+﻿{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/scene-workbench/manifest.v1.schema.json",
+  "title": "ProjectManifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "manifest_id",
+    "video",
+    "config",
+    "coarse_boundaries",
+    "suspicious_windows",
+    "refined_boundaries",
+    "final_boundaries",
+    "review_actions"
+  ],
+  "properties": {
+    "version": {
+      "type": "string",
+      "const": "v1"
+    },
+    "manifest_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "video": {
+      "$ref": "#/$defs/VideoSource"
+    },
+    "config": {
+      "type": "object"
+    },
+    "coarse_boundaries": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/BoundaryCandidate"
+      }
+    },
+    "suspicious_windows": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/SuspiciousWindow"
+      }
+    },
+    "refined_boundaries": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/BoundaryCandidate"
+      }
+    },
+    "final_boundaries": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/BoundaryCandidate"
+      }
+    },
+    "review_actions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/ReviewAction"
+      }
+    },
+    "summary": {
+      "$ref": "#/$defs/ManifestSummary"
+    }
+  },
+  "$defs": {
+    "BoundaryType": {
+      "type": "string",
+      "enum": [
+        "hard_cut",
+        "dissolve",
+        "fade_in",
+        "fade_out",
+        "wipe",
+        "unknown"
+      ]
+    },
+    "ReviewState": {
+      "type": "string",
+      "enum": [
+        "unreviewed",
+        "accepted",
+        "rejected",
+        "adjusted",
+        "merged",
+        "inserted"
+      ]
+    },
+    "ReviewActionType": {
+      "type": "string",
+      "enum": [
+        "accept",
+        "reject",
+        "adjust",
+        "merge",
+        "insert"
+      ]
+    },
+    "VideoSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "fps",
+        "width",
+        "height",
+        "total_frames",
+        "duration_sec"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "fps": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "total_frames": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "duration_sec": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "PySceneDetectEvidence": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "triggered"
+      ],
+      "properties": {
+        "triggered": {
+          "type": "boolean"
+        },
+        "score": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "scores": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          }
+        },
+        "detector": {
+          "type": "string"
+        }
+      }
+    },
+    "TransNetV2Evidence": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "triggered"
+      ],
+      "properties": {
+        "triggered": {
+          "type": "boolean"
+        },
+        "score": {
+          "type": "number"
+        },
+        "window_id": {
+          "type": "string"
+        }
+      }
+    },
+    "ManualReviewEvidence": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "triggered",
+        "decision"
+      ],
+      "properties": {
+        "triggered": {
+          "type": "boolean"
+        },
+        "decision": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        }
+      }
+    },
+    "DetectorEvidence": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "pyscenedetect": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "content": {
+              "$ref": "#/$defs/PySceneDetectEvidence"
+            },
+            "adaptive": {
+              "$ref": "#/$defs/PySceneDetectEvidence"
+            },
+            "threshold": {
+              "$ref": "#/$defs/PySceneDetectEvidence"
+            }
+          }
+        },
+        "transnetv2": {
+          "$ref": "#/$defs/TransNetV2Evidence"
+        },
+        "manual_review": {
+          "$ref": "#/$defs/ManualReviewEvidence"
+        }
+      }
+    },
+    "BoundaryCandidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "start_frame",
+        "end_frame",
+        "recommended_cut_frame",
+        "boundary_type",
+        "confidence",
+        "review_state",
+        "detector_evidence"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "start_frame": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "end_frame": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "recommended_cut_frame": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "boundary_type": {
+          "$ref": "#/$defs/BoundaryType"
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "review_state": {
+          "$ref": "#/$defs/ReviewState"
+        },
+        "detector_evidence": {
+          "$ref": "#/$defs/DetectorEvidence"
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "source_boundary_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "SuspiciousWindow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "start_frame",
+        "end_frame",
+        "reason",
+        "source_boundary_ids"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "start_frame": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "end_frame": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_boundary_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "ReviewActionPayload": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "old_start_frame": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "old_end_frame": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "old_recommended_cut_frame": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "new_start_frame": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "new_end_frame": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "new_recommended_cut_frame": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "merged_start_frame": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "merged_end_frame": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "merged_recommended_cut_frame": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "merged_boundary_type": {
+          "$ref": "#/$defs/BoundaryType"
+        },
+        "start_frame": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "end_frame": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "recommended_cut_frame": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "boundary_type": {
+          "$ref": "#/$defs/BoundaryType"
+        },
+        "reason": {
+          "type": "string"
+        }
+      }
+    },
+    "ReviewAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "action",
+        "target_boundary_ids",
+        "result_boundary_id",
+        "created_by",
+        "created_at",
+        "payload"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "action": {
+          "$ref": "#/$defs/ReviewActionType"
+        },
+        "target_boundary_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "result_boundary_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "created_by": {
+          "type": "string",
+          "minLength": 1
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "payload": {
+          "$ref": "#/$defs/ReviewActionPayload"
+        }
+      }
+    },
+    "ReviewActionCommand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "action",
+        "target_boundary_ids",
+        "created_by",
+        "payload"
+      ],
+      "properties": {
+        "action": {
+          "$ref": "#/$defs/ReviewActionType"
+        },
+        "target_boundary_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "created_by": {
+          "type": "string",
+          "minLength": 1
+        },
+        "payload": {
+          "$ref": "#/$defs/ReviewActionPayload"
+        }
+      }
+    },
+    "ManifestSummaryCounts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "coarse_boundaries",
+        "suspicious_windows",
+        "refined_boundaries",
+        "final_boundaries",
+        "accepted",
+        "adjusted",
+        "merged",
+        "inserted",
+        "rejected"
+      ],
+      "properties": {
+        "coarse_boundaries": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "suspicious_windows": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "refined_boundaries": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "final_boundaries": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "accepted": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "adjusted": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "merged": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "inserted": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "rejected": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "ManifestSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "counts"
+      ],
+      "properties": {
+        "counts": {
+          "$ref": "#/$defs/ManifestSummaryCounts"
+        }
+      }
+    }
+  }
+}

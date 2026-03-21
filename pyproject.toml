@@ -1,0 +1,40 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "scene-workbench"
+version = "0.1.0"
+description = "镜头边界确认工作台的 Python 实现。"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "pydantic>=2.11,<3.0",
+  "typer>=0.16,<1.0",
+  "scenedetect>=0.6.5,<0.7",
+  "opencv-python>=4.11,<5.0",
+]
+
+[project.optional-dependencies]
+web = [
+  "fastapi>=0.116,<1.0",
+  "jinja2>=3.1,<4.0",
+  "uvicorn>=0.35,<1.0",
+]
+refine = [
+  "transnetv2-pytorch>=1.0.5,<2.0",
+]
+dev = [
+  "httpx>=0.28,<1.0",
+  "pytest>=8.3,<9.0",
+]
+
+[project.scripts]
+scene-workbench = "scene_workbench.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/scene_workbench"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

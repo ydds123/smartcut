@@ -1,0 +1,36 @@
+{
+  "version": "v1",
+  "samples": [
+    {
+      "sample_id": "demo_manifest_reference",
+      "status": "ready",
+      "manifest_path": "../examples/manifest.v1.example.json",
+      "covers": [
+        "hard_cut",
+        "dissolve",
+        "flash_false_positive",
+        "long_scene_window"
+      ],
+      "notes": "当前唯一已纳入仓库的参考样本，适合做导出、review、summary 和 baseline 烟测。"
+    },
+    {
+      "sample_id": "narrative_fade_reference",
+      "status": "planned",
+      "manifest_path": null,
+      "covers": [
+        "fade_in",
+        "fade_out"
+      ],
+      "notes": "待补真实叙事视频或短片片段。"
+    },
+    {
+      "sample_id": "wipe_transition_reference",
+      "status": "planned",
+      "manifest_path": null,
+      "covers": [
+        "wipe"
+      ],
+      "notes": "待补具有明显 wipe 的素材。"
+    }
+  ]
+}

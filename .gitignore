@@ -1,0 +1,6 @@
+.venv/
+.pytest_cache/
+.codex-plans/
+__pycache__/
+*.pyc
+evaluation/runs/

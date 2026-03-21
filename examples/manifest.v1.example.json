@@ -1,0 +1,642 @@
+{
+  "version": "v1",
+  "manifest_id": "demo_shortfilm_v1_001",
+  "video": {
+    "path": "./fixtures/demo_shortfilm.mp4",
+    "fps": 24.0,
+    "width": 1920,
+    "height": 1080,
+    "total_frames": 28764,
+    "duration_sec": 1198.5
+  },
+  "config": {
+    "coarse_detection": {
+      "detectors": [
+        "content",
+        "adaptive",
+        "threshold"
+      ],
+      "content_threshold": 27.0,
+      "adaptive_threshold": 3.0,
+      "min_scene_len": 12
+    },
+    "refinement": {
+      "enabled": true,
+      "model": "transnetv2",
+      "window_padding_frames": 12,
+      "max_window_frames": 96,
+      "only_suspicious_windows": true
+    },
+    "fusion": {
+      "merge_gap_frames": 6,
+      "gradual_min_len_frames": 4,
+      "hard_cut_max_len_frames": 1
+    },
+    "review": {
+      "autosave": true
+    },
+    "export": {
+      "accepted_only": true,
+      "default_formats": [
+        "json",
+        "edl",
+        "ffmpeg"
+      ]
+    }
+  },
+  "coarse_boundaries": [
+    {
+      "id": "c_0001",
+      "start_frame": 248,
+      "end_frame": 248,
+      "recommended_cut_frame": 248,
+      "boundary_type": "hard_cut",
+      "confidence": 0.94,
+      "review_state": "accepted",
+      "detector_evidence": {
+        "pyscenedetect": {
+          "content": {
+            "triggered": true,
+            "score": 34.8,
+            "scores": null,
+            "detector": null
+          },
+          "adaptive": {
+            "triggered": true,
+            "score": 4.2,
+            "scores": null,
+            "detector": null
+          },
+          "threshold": {
+            "triggered": false,
+            "score": null,
+            "scores": null,
+            "detector": null
+          }
+        },
+        "transnetv2": null,
+        "manual_review": null,
+        "extra": {}
+      },
+      "notes": [
+        "clear hard cut from wide establishing shot to interior"
+      ],
+      "source_boundary_ids": []
+    },
+    {
+      "id": "c_0002",
+      "start_frame": 979,
+      "end_frame": 979,
+      "recommended_cut_frame": 979,
+      "boundary_type": "hard_cut",
+      "confidence": 0.62,
+      "review_state": "adjusted",
+      "detector_evidence": {
+        "pyscenedetect": {
+          "content": {
+            "triggered": true,
+            "score": 28.1,
+            "scores": null,
+            "detector": null
+          },
+          "adaptive": {
+            "triggered": false,
+            "score": 2.4,
+            "scores": null,
+            "detector": null
+          },
+          "threshold": {
+            "triggered": false,
+            "score": null,
+            "scores": null,
+            "detector": null
+          }
+        },
+        "transnetv2": null,
+        "manual_review": null,
+        "extra": {}
+      },
+      "notes": [
+        "candidate is close but slightly early"
+      ],
+      "source_boundary_ids": []
+    },
+    {
+      "id": "c_0003",
+      "start_frame": 1438,
+      "end_frame": 1438,
+      "recommended_cut_frame": 1438,
+      "boundary_type": "hard_cut",
+      "confidence": 0.55,
+      "review_state": "merged",
+      "detector_evidence": {
+        "pyscenedetect": {
+          "content": {
+            "triggered": true,
+            "score": 26.0,
+            "scores": null,
+            "detector": null
+          },
+          "adaptive": {
+            "triggered": false,
+            "score": 1.9,
+            "scores": null,
+            "detector": null
+          },
+          "threshold": {
+            "triggered": true,
+            "score": 13.2,
+            "scores": null,
+            "detector": null
+          }
+        },
+        "transnetv2": null,
+        "manual_review": null,
+        "extra": {}
+      },
+      "notes": [
+        "first coarse trigger inside a dissolve region"
+      ],
+      "source_boundary_ids": []
+    },
+    {
+      "id": "c_0004",
+      "start_frame": 1452,
+      "end_frame": 1452,
+      "recommended_cut_frame": 1452,
+      "boundary_type": "hard_cut",
+      "confidence": 0.53,
+      "review_state": "merged",
+      "detector_evidence": {
+        "pyscenedetect": {
+          "content": {
+            "triggered": true,
+            "score": 25.6,
+            "scores": null,
+            "detector": null
+          },
+          "adaptive": {
+            "triggered": false,
+            "score": 1.7,
+            "scores": null,
+            "detector": null
+          },
+          "threshold": {
+            "triggered": true,
+            "score": 12.8,
+            "scores": null,
+            "detector": null
+          }
+        },
+        "transnetv2": null,
+        "manual_review": null,
+        "extra": {}
+      },
+      "notes": [
+        "second coarse trigger inside the same dissolve region"
+      ],
+      "source_boundary_ids": []
+    },
+    {
+      "id": "c_0005",
+      "start_frame": 2208,
+      "end_frame": 2208,
+      "recommended_cut_frame": 2208,
+      "boundary_type": "hard_cut",
+      "confidence": 0.58,
+      "review_state": "rejected",
+      "detector_evidence": {
+        "pyscenedetect": {
+          "content": {
+            "triggered": true,
+            "score": 27.4,
+            "scores": null,
+            "detector": null
+          },
+          "adaptive": {
+            "triggered": false,
+            "score": 2.1,
+            "scores": null,
+            "detector": null
+          },
+          "threshold": {
+            "triggered": false,
+            "score": null,
+            "scores": null,
+            "detector": null
+          }
+        },
+        "transnetv2": null,
+        "manual_review": null,
+        "extra": {}
+      },
+      "notes": [
+        "false positive caused by flash / lighting burst within same shot"
+      ],
+      "source_boundary_ids": []
+    }
+  ],
+  "suspicious_windows": [
+    {
+      "id": "w_0001",
+      "start_frame": 960,
+      "end_frame": 1002,
+      "reason": "low_confidence",
+      "source_boundary_ids": [
+        "c_0002"
+      ]
+    },
+    {
+      "id": "w_0002",
+      "start_frame": 1428,
+      "end_frame": 1468,
+      "reason": "gradual_suspect",
+      "source_boundary_ids": [
+        "c_0003",
+        "c_0004"
+      ]
+    },
+    {
+      "id": "w_0003",
+      "start_frame": 3180,
+      "end_frame": 3234,
+      "reason": "long_scene",
+      "source_boundary_ids": []
+    }
+  ],
+  "refined_boundaries": [
+    {
+      "id": "r_0001",
+      "start_frame": 982,
+      "end_frame": 982,
+      "recommended_cut_frame": 982,
+      "boundary_type": "hard_cut",
+      "confidence": 0.88,
+      "review_state": "adjusted",
+      "detector_evidence": {
+        "pyscenedetect": null,
+        "transnetv2": {
+          "triggered": true,
+          "score": 0.88,
+          "window_id": "w_0001"
+        },
+        "manual_review": null,
+        "extra": {}
+      },
+      "notes": [
+        "refinement suggests cut is 3 frames later than coarse output"
+      ],
+      "source_boundary_ids": []
+    },
+    {
+      "id": "r_0002",
+      "start_frame": 1437,
+      "end_frame": 1463,
+      "recommended_cut_frame": 1450,
+      "boundary_type": "dissolve",
+      "confidence": 0.93,
+      "review_state": "merged",
+      "detector_evidence": {
+        "pyscenedetect": null,
+        "transnetv2": {
+          "triggered": true,
+          "score": 0.93,
+          "window_id": "w_0002"
+        },
+        "manual_review": null,
+        "extra": {}
+      },
+      "notes": [
+        "single gradual transition detected across the full interval"
+      ],
+      "source_boundary_ids": []
+    }
+  ],
+  "final_boundaries": [
+    {
+      "id": "f_0001",
+      "start_frame": 248,
+      "end_frame": 248,
+      "recommended_cut_frame": 248,
+      "boundary_type": "hard_cut",
+      "confidence": 0.94,
+      "review_state": "accepted",
+      "detector_evidence": {
+        "pyscenedetect": {
+          "content": {
+            "triggered": true,
+            "score": 34.8,
+            "scores": null,
+            "detector": null
+          },
+          "adaptive": {
+            "triggered": true,
+            "score": 4.2,
+            "scores": null,
+            "detector": null
+          },
+          "threshold": {
+            "triggered": false,
+            "score": null,
+            "scores": null,
+            "detector": null
+          }
+        },
+        "transnetv2": null,
+        "manual_review": {
+          "triggered": true,
+          "decision": "accept",
+          "reason": null
+        },
+        "extra": {}
+      },
+      "notes": [
+        "clear hard cut from wide establishing shot to interior"
+      ],
+      "source_boundary_ids": [
+        "c_0001"
+      ]
+    },
+    {
+      "id": "f_0002",
+      "start_frame": 982,
+      "end_frame": 982,
+      "recommended_cut_frame": 982,
+      "boundary_type": "hard_cut",
+      "confidence": 0.88,
+      "review_state": "adjusted",
+      "detector_evidence": {
+        "pyscenedetect": {
+          "content": {
+            "triggered": true,
+            "score": 28.1,
+            "scores": null,
+            "detector": null
+          },
+          "adaptive": {
+            "triggered": false,
+            "score": 2.4,
+            "scores": null,
+            "detector": null
+          },
+          "threshold": {
+            "triggered": false,
+            "score": null,
+            "scores": null,
+            "detector": null
+          }
+        },
+        "transnetv2": {
+          "triggered": true,
+          "score": 0.88,
+          "window_id": "w_0001"
+        },
+        "manual_review": {
+          "triggered": true,
+          "decision": "adjust",
+          "reason": "move cut to first clean reverse-shot frame"
+        },
+        "extra": {}
+      },
+      "notes": [
+        "candidate is close but slightly early",
+        "refinement suggests cut is 3 frames later than coarse output",
+        "move cut to first clean reverse-shot frame"
+      ],
+      "source_boundary_ids": [
+        "c_0002",
+        "r_0001"
+      ]
+    },
+    {
+      "id": "f_0003",
+      "start_frame": 1437,
+      "end_frame": 1463,
+      "recommended_cut_frame": 1450,
+      "boundary_type": "dissolve",
+      "confidence": 0.93,
+      "review_state": "merged",
+      "detector_evidence": {
+        "pyscenedetect": {
+          "content": {
+            "triggered": true,
+            "score": 26.0,
+            "scores": null,
+            "detector": null
+          },
+          "adaptive": {
+            "triggered": false,
+            "score": 1.9,
+            "scores": null,
+            "detector": null
+          },
+          "threshold": {
+            "triggered": true,
+            "score": 13.2,
+            "scores": null,
+            "detector": null
+          }
+        },
+        "transnetv2": {
+          "triggered": true,
+          "score": 0.93,
+          "window_id": "w_0002"
+        },
+        "manual_review": {
+          "triggered": true,
+          "decision": "merge",
+          "reason": "coarse double-trigger collapsed into one gradual transition"
+        },
+        "extra": {}
+      },
+      "notes": [
+        "first coarse trigger inside a dissolve region",
+        "second coarse trigger inside the same dissolve region",
+        "single gradual transition detected across the full interval",
+        "coarse double-trigger collapsed into one gradual transition"
+      ],
+      "source_boundary_ids": [
+        "c_0003",
+        "c_0004",
+        "r_0002"
+      ]
+    },
+    {
+      "id": "f_0004",
+      "start_frame": 3210,
+      "end_frame": 3210,
+      "recommended_cut_frame": 3210,
+      "boundary_type": "hard_cut",
+      "confidence": 1.0,
+      "review_state": "inserted",
+      "detector_evidence": {
+        "pyscenedetect": null,
+        "transnetv2": null,
+        "manual_review": {
+          "triggered": true,
+          "decision": "insert",
+          "reason": "missed reverse-shot cut"
+        },
+        "extra": {}
+      },
+      "notes": [
+        "missed reverse-shot cut"
+      ],
+      "source_boundary_ids": []
+    }
+  ],
+  "review_actions": [
+    {
+      "id": "a_0001",
+      "action": "accept",
+      "target_boundary_ids": [
+        "f_0001"
+      ],
+      "result_boundary_id": "f_0001",
+      "created_by": "reviewer_01",
+      "created_at": "2026-03-20T09:15:03Z",
+      "payload": {
+        "old_start_frame": null,
+        "old_end_frame": null,
+        "old_recommended_cut_frame": null,
+        "new_start_frame": null,
+        "new_end_frame": null,
+        "new_recommended_cut_frame": null,
+        "merged_start_frame": null,
+        "merged_end_frame": null,
+        "merged_recommended_cut_frame": null,
+        "merged_boundary_type": null,
+        "start_frame": null,
+        "end_frame": null,
+        "recommended_cut_frame": null,
+        "boundary_type": null,
+        "reason": null,
+        "extra": {}
+      }
+    },
+    {
+      "id": "a_0002",
+      "action": "adjust",
+      "target_boundary_ids": [
+        "f_0002"
+      ],
+      "result_boundary_id": "f_0002",
+      "created_by": "reviewer_01",
+      "created_at": "2026-03-20T09:17:12Z",
+      "payload": {
+        "old_start_frame": 979,
+        "old_end_frame": 979,
+        "old_recommended_cut_frame": 979,
+        "new_start_frame": 982,
+        "new_end_frame": 982,
+        "new_recommended_cut_frame": 982,
+        "merged_start_frame": null,
+        "merged_end_frame": null,
+        "merged_recommended_cut_frame": null,
+        "merged_boundary_type": null,
+        "start_frame": null,
+        "end_frame": null,
+        "recommended_cut_frame": null,
+        "boundary_type": null,
+        "reason": "move cut to first clean reverse-shot frame",
+        "extra": {}
+      }
+    },
+    {
+      "id": "a_0003",
+      "action": "merge",
+      "target_boundary_ids": [
+        "f_hist_merge_0003a",
+        "f_hist_merge_0003b"
+      ],
+      "result_boundary_id": "f_0003",
+      "created_by": "reviewer_01",
+      "created_at": "2026-03-20T09:20:45Z",
+      "payload": {
+        "old_start_frame": null,
+        "old_end_frame": null,
+        "old_recommended_cut_frame": null,
+        "new_start_frame": null,
+        "new_end_frame": null,
+        "new_recommended_cut_frame": null,
+        "merged_start_frame": 1437,
+        "merged_end_frame": 1463,
+        "merged_recommended_cut_frame": 1450,
+        "merged_boundary_type": "dissolve",
+        "start_frame": null,
+        "end_frame": null,
+        "recommended_cut_frame": null,
+        "boundary_type": null,
+        "reason": "coarse double-trigger collapsed into one gradual transition",
+        "extra": {}
+      }
+    },
+    {
+      "id": "a_0004",
+      "action": "reject",
+      "target_boundary_ids": [
+        "f_hist_reject_0005"
+      ],
+      "result_boundary_id": null,
+      "created_by": "reviewer_01",
+      "created_at": "2026-03-20T09:23:04Z",
+      "payload": {
+        "old_start_frame": null,
+        "old_end_frame": null,
+        "old_recommended_cut_frame": null,
+        "new_start_frame": null,
+        "new_end_frame": null,
+        "new_recommended_cut_frame": null,
+        "merged_start_frame": null,
+        "merged_end_frame": null,
+        "merged_recommended_cut_frame": null,
+        "merged_boundary_type": null,
+        "start_frame": null,
+        "end_frame": null,
+        "recommended_cut_frame": null,
+        "boundary_type": null,
+        "reason": "camera flash inside same shot",
+        "extra": {}
+      }
+    },
+    {
+      "id": "a_0005",
+      "action": "insert",
+      "target_boundary_ids": [],
+      "result_boundary_id": "f_0004",
+      "created_by": "reviewer_01",
+      "created_at": "2026-03-20T09:25:33Z",
+      "payload": {
+        "old_start_frame": null,
+        "old_end_frame": null,
+        "old_recommended_cut_frame": null,
+        "new_start_frame": null,
+        "new_end_frame": null,
+        "new_recommended_cut_frame": null,
+        "merged_start_frame": null,
+        "merged_end_frame": null,
+        "merged_recommended_cut_frame": null,
+        "merged_boundary_type": null,
+        "start_frame": 3210,
+        "end_frame": 3210,
+        "recommended_cut_frame": 3210,
+        "boundary_type": "hard_cut",
+        "reason": "missed reverse-shot cut",
+        "extra": {}
+      }
+    }
+  ],
+  "summary": {
+    "counts": {
+      "coarse_boundaries": 5,
+      "suspicious_windows": 3,
+      "refined_boundaries": 2,
+      "final_boundaries": 4,
+      "accepted": 1,
+      "adjusted": 1,
+      "merged": 1,
+      "inserted": 1,
+      "rejected": 1
+    }
+  }
+}
